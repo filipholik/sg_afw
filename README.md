@@ -1,4 +1,4 @@
 # sg_afw
 Smart Grid Adaptive Firewall 
 
-RYU application
+RYU application, v 3.0.2
