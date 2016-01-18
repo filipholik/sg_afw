@@ -28,6 +28,8 @@ from ryu.ofproto import inet
 from ryu.lib.packet import ipv4
 from ryu.lib.packet import vlan
 
+from ryu.ofproto.ofproto_v1_2 import OFPG_ANY
+
 import time
 import json
 import logging
@@ -48,11 +50,13 @@ class SimpleSwitch13(app_manager.RyuApp):
     datapath_ids = []
     flow_reply_received = 0
 
+
     def __init__(self, *args, **kwargs):
         super(SimpleSwitch13, self).__init__(*args, **kwargs)
         self.mac_to_port = {}
         wsgi = kwargs['wsgi']
         wsgi.register(SGController, {sg_controller_instance_name : self})
+
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -72,19 +76,33 @@ class SimpleSwitch13(app_manager.RyuApp):
         actions = [parser.OFPActionOutput(ofproto.OFPP_CONTROLLER,
                                           ofproto.OFPCML_NO_BUFFER)]
         action_normal = [parser.OFPActionOutput(ofproto.OFPP_NORMAL)]
+        action_copy = [parser.OFPActionOutput(ofproto.OFPP_NORMAL), parser.OFPActionOutput(ofproto.OFPP_CONTROLLER)]
+
         #TODO set idle_timeouts to 0 - infinity, 180 only for testing purposes
-        self.add_flow(datapath, 0, 180, match, actions)
+
 
         #LLDP frames
-        self.add_flow(datapath, 1, 180, parser.OFPMatch(eth_type=0x88cc), actions)
+        self.add_flow(datapath, 1, 180, 100, parser.OFPMatch(eth_type=0x88cc), actions)
 
         #Hybrid SDN Config -----------------------------------------
         #BDDP frames
-        self.add_flow(datapath, 1, 180, parser.OFPMatch(eth_type=0x8999), actions)
-        #ARP frames
-        self.add_flow(datapath, 1, 180, parser.OFPMatch(eth_type=2054), action_normal)
+        self.add_flow(datapath, 1, 180, 100, parser.OFPMatch(eth_type=0x8999), actions)
 
-        #self.add_flow(datapath, 0, match, [parser.OFPActionOutput(ofproto.OFPP_NORMAL)])
+        #ARP frames
+        #self.add_flow(datapath, 1, 180, 100, parser.OFPMatch(eth_type=2054), action_normal)
+        # first instruction to table 200 must be set
+        instruction_200 = [parser.OFPInstructionGotoTable(200)]
+        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,
+                                             actions)]
+        mod = parser.OFPFlowMod(datapath, table_id=100, command=ofproto.OFPFC_ADD, idle_timeout = 180,
+                                priority = 0, match=parser.OFPMatch(eth_type=2054), instructions=instruction_200)
+        datapath.send_msg(mod)
+        # rule itself must be inserted in table 200 (supports copying of packets)
+        self.add_flow(datapath, 1, 180, 200, parser.OFPMatch(eth_type=2054), action_copy)
+
+        #Deny everything else - send it to the controller
+        self.add_flow(datapath, 0, 180, 100, match, actions)
+
         self.fw_init(datapath)
 
 
@@ -147,11 +165,11 @@ class SimpleSwitch13(app_manager.RyuApp):
                 ipv4_src = rule.ipv4_src, ipv4_dst = rule.ipv4_dst,
                 udp_src = int(rule.udp_source), udp_dst = int(rule.udp_destination))
 
-          self.add_flow(datapath, 3, 120, match,
+          self.add_flow(datapath, 3, 120, 100, match,
              [parser.OFPActionOutput(ofproto.OFPP_NORMAL)])
 
 
-    def add_flow(self, datapath, priority, idle_timeout, match, actions, buffer_id=None):
+    def add_flow(self, datapath, priority, idle_timeout, table_id, match, actions, buffer_id=None):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
 
@@ -160,12 +178,13 @@ class SimpleSwitch13(app_manager.RyuApp):
         if buffer_id:
             mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
                                     priority=priority, match=match,
-                                    idle_timeout=idle_timeout, instructions=inst, table_id=100)
+                                    idle_timeout=idle_timeout, instructions=inst, table_id=table_id)
         else:
             mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
                                     match=match, idle_timeout=idle_timeout, instructions=inst,
-                                    table_id=100)
+                                    table_id=table_id)
         datapath.send_msg(mod)
+
 
     @set_ev_cls(ofp_event.EventOFPPortStatus, MAIN_DISPATCHER)
     def _port_status_handler(self, ev):
@@ -208,10 +227,11 @@ class SimpleSwitch13(app_manager.RyuApp):
         #   self.logger.info("Protocols: %s", p)
 
         allow_traffic = 0
+        allow_reason = ""
         if eth.ethertype == ether_types.ETH_TYPE_8021Q:
            #self.logger.info("F: Received 802.1Q frame!")
            if eth_vlan.ethertype == 2054:
-              self.logger.info("ARP packet (in 802.1Q) - allowing... ")
+              allow_reason = "ARP packet (in 802.1Q)... "
               allow_traffic = 1
            if eth_vlan.ethertype == 35020:
               self.logger.info("Received LLDP frame (in 802.1Q). Exiting... ")
@@ -261,21 +281,22 @@ class SimpleSwitch13(app_manager.RyuApp):
                                   in_port=in_port, actions=actions, data=data)
 
         if allow_traffic == 1:
-           self.logger.info("Traffic allowed... ")
+           self.logger.info("Traffic allowed, reason: " + allow_reason)
            datapath.send_msg(out)
         elif out_port == ofproto.OFPP_FLOOD:
            self.logger.info("Flooding not allowed anymore... ")
            self.logger.info("Deny rule inserted to block this traffic... ")
-           self.add_flow(datapath,2, 120, parser.OFPMatch
-              (eth_dst = dst, eth_src = src, eth_type = eth_vlan.ethertype), [])
+           #self.add_flow(datapath,2, 120, 100, parser.OFPMatch
+            #  (eth_dst = dst, eth_src = src, eth_type = eth_vlan.ethertype), [])
 
            #datapath.send_msg(out)
         else:
            self.logger.info("Traffic blocked by Controller... ")
            match = parser.OFPMatch(eth_dst = dst, eth_src = src,
                eth_type = eth_vlan.ethertype)
-           self.add_flow(datapath, 2, 120, match, [])
+           #self.add_flow(datapath, 2, 120, 100, match, [])
         self.getFlows(datapath.id)
+
 
     def getFlows(self, dpid):
        datapath = 0
@@ -314,6 +335,7 @@ class SimpleSwitch13(app_manager.RyuApp):
                                          match)
        datapath.send_msg(req)
 
+
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
     def flow_stats_reply_handler(self, ev):
        flows = []
@@ -334,6 +356,9 @@ class SimpleSwitch13(app_manager.RyuApp):
        self.flow_rules = flows
        self.flow_reply_received = 1
 
+
+
+#---------------- Class for HTTP REST API -----------------------------
 class SGController(ControllerBase):
 
    def __init__(self, req, link, data, **config):
