@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adaptive Firewall for Smart Grid Security, v3.0.2
+# Adaptive Firewall for Smart Grid Security, v3.1
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -37,6 +37,9 @@ from webob import Response
 from ryu.app.wsgi import ControllerBase, WSGIApplication, route
 from ryu.lib import dpid as dpid_lib
 
+from switchpoll import *
+from threading import *
+
 
 sg_controller_instance_name = 'sg_controller_api_app'
 url = '/fw/rules/{dpid}'
@@ -45,18 +48,21 @@ url2 = '/fw/traffic/{dpid}'
 class SimpleSwitch13(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
     _CONTEXTS = { 'wsgi' : WSGIApplication }
-    flow_rules = 0
-    traffic = []
-    datapath_ids = []
-    flow_reply_received = 0
 
+    flowtablesdict = {} #Flow Tables of all switches
+    traffic = {}
 
     def __init__(self, *args, **kwargs):
         super(SimpleSwitch13, self).__init__(*args, **kwargs)
         self.mac_to_port = {}
+        self.datapathdict = {} #for storing datapaths
         wsgi = kwargs['wsgi']
         wsgi.register(SGController, {sg_controller_instance_name : self})
 
+        #Thread for periodic polling of information from switches
+        switchPoll = SwitchPoll()
+        pollThread = Thread(target=switchPoll.run, args=(5,self.datapathdict))
+        pollThread.start()
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -64,7 +70,9 @@ class SimpleSwitch13(app_manager.RyuApp):
         ofproto = datapath.ofproto
         parser = datapath.ofproto_parser
 
-        self.datapath_ids.append(datapath)
+
+        self.datapathdict[datapath.id] = datapath
+
         # install table-miss flow entry
         #
         # We specify NO BUFFER to max_len of the output action due to
@@ -249,8 +257,9 @@ class SimpleSwitch13(app_manager.RyuApp):
 
         self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
 
-        tr = src + " -> " + dst + ", " + str(eth.ethertype)
-        self.traffic.append(tr)
+        #tr = src + " -> " + dst + ", " + str(eth.ethertype)
+        #self.traffic.append(tr)
+        self.captureTraffic(ev)
 
         # learn a mac address to avoid FLOOD next time.
         self.mac_to_port[dpid][src] = in_port
@@ -295,52 +304,33 @@ class SimpleSwitch13(app_manager.RyuApp):
            match = parser.OFPMatch(eth_dst = dst, eth_src = src,
                eth_type = eth_vlan.ethertype)
            #self.add_flow(datapath, 2, 120, 100, match, [])
-        self.getFlows(datapath.id)
 
 
-    def getFlows(self, dpid):
-       datapath = 0
-       self.logger.info("Datapath_ids length: %s", len(self.datapath_ids))
+    def captureTraffic(self, ev):
+      msg = ev.msg
+      datapath = msg.datapath
+      pkt = packet.Packet(msg.data)
+      eth = pkt.get_protocols(ethernet.ethernet)[0]
+      capturedTraffic = []
+      message = eth.src + " -> " + eth.dst + ", proto: " + str(eth.ethertype)
 
-       for d in self.datapath_ids:
-          self.logger.info("Comparing dpid %s with id %s", dpid, d.id)
-          if long(d.id) == long(dpid):
-             datapath = d
-             self.logger.info("DPID found")
-             break
+      if datapath.id in self.traffic:
+        capturedTraffic = self.traffic[datapath.id]
+        if message in capturedTraffic:
+          self.logger.info('This type of traffic already exists... ')
+          #TODO add timers when traffic lastly capture, update here...
+          return
 
-       if datapath == 0:
-          return "Error 404, datapath not found"
-
-       self.flow_reply_received = 0
-       self.requestFlows(datapath)
-       max_timeout = 2
-       while self.flow_reply_received == 0:
-          max_timeout -= 0.2
-          if max_timeout <= 0:
-             return "Switch is not responding... "
-          time.sleep(0.2)
-       return self.flow_rules
-
-
-    def requestFlows(self, datapath):
-       ofp = datapath.ofproto
-       ofp_parser = datapath.ofproto_parser
-       cookie = cookie_mask = 0
-       match = ofp_parser.OFPMatch()
-       req = ofp_parser.OFPFlowStatsRequest(datapath, 0,
-                                         ofp.OFPTT_ALL,
-                                         ofp.OFPP_ANY, ofp.OFPG_ANY,
-                                         cookie, cookie_mask,
-                                         match)
-       datapath.send_msg(req)
-
+      capturedTraffic.append(message)
+      self.traffic[datapath.id] = capturedTraffic
+      self.logger.info('New traffic captured... ')
 
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
     def flow_stats_reply_handler(self, ev):
-       flows = []
-       for stat in ev.msg.body:
-          flows.append('table_id=%s'
+      self.logger.info('Flow_stats_reply received... ')
+      flows = []
+      for stat in ev.msg.body:
+        flows.append('table_id=%s'
                      'duration_sec=%d duration_nsec=%d '
                      'priority=%d '
                      'idle_timeout=%d hard_timeout=%d flags=0x%04x '
@@ -352,10 +342,21 @@ class SimpleSwitch13(app_manager.RyuApp):
                       stat.idle_timeout, stat.hard_timeout, stat.flags,
                       stat.cookie, stat.packet_count, stat.byte_count,
                       stat.match, stat.instructions))
-       #self.logger.debug('FlowStats: %s', flows)
-       self.flow_rules = flows
-       self.flow_reply_received = 1
+      #self.logger.info('FlowStats: %s', flows)
+      datapath = ev.msg.datapath
+      self.flowtablesdict[datapath.id] = flows
 
+    def getFlows(self, dpid):
+      if int(dpid) not in self.flowtablesdict:
+        return "Datapath ID entry not found... "
+      else:
+        return self.flowtablesdict[int(dpid)]
+
+    def getTraffic(self, dpid):
+      if int(dpid) not in self.traffic:
+        return "Datapath ID entry not found... "
+      else:
+        return self.traffic[int(dpid)]
 
 
 #---------------- Class for HTTP REST API -----------------------------
@@ -381,5 +382,6 @@ class SGController(ControllerBase):
    @route('fw', url2, methods = ['GET'], requirements = {'dpid': dpid_lib.DPID_PATTERN})
    def list_fw_traffic(self, req, **kwargs):
       sg_switch = self.sg_app
-      body = json.dumps(sg_switch.traffic)
+      traffic = sg_switch.getTraffic(kwargs['dpid'])
+      body = json.dumps(traffic)
       return Response(content_type='application/json', body = body)
