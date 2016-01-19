@@ -1,0 +1,20 @@
+// Rules for SDN SG Firewall
+
+//MAC mapping
+IED1 fa:16:3e:30:cc:04
+IED2 fa:16:3e:d9:48:74
+IED3 fa:16:3e:eb:f0:a5
+IED4 fa:16:3e:5e:c6:ef
+COL1 fa:16:3e:7c:83:ac
+
+//Multicast address:
+LIB61850_MC 01:0c:cd:01:00:01
+
+//Rules
+//Format: allow/deny src dst L2_proto L3_proto IPsource IPdest
+allow IED1 IED3 0x0800 1 0 0 0 0
+allow IED3 IED1 0x0800 1 0 0 0 0
+allow IED1 COL1 0x0800 1 0 0 0 0
+allow IED1 LIB61850_MC 0x88B8 0 0 0 0 0
+allow IED2 IED4 0x0800 6 192.168.99.202 192.168.99.205 80 80
+allow IED4 IED2 0x0800 6 192.168.99.205 192.168.99.202 80 80

@@ -1,0 +1,19 @@
+// Topology file for SmartGrid network, for v 3.2
+
+//Devices, their role and their DPIDs
+//Role 0 = access, role 1 = transit
+SWITCH2 0 2960111173765568
+SWITCH4 0 2991443865190400
+
+
+//Mapping devices (MAC) to switches
+SWITCH2 fa:16:3e:30:cc:04
+SWITCH2 fa:16:3e:d9:48:74
+SWITCH2 fa:16:3e:7c:83:ac
+SWITCH4 fa:16:3e:eb:f0:a5
+SWITCH4 fa:16:3e:5e:c6:ef
+
+
+//Mapping multicast addresses to switches
+//LIB61850_MC 01:0c:cd:01:00:01
+
