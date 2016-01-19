@@ -1,4 +1,4 @@
-// Topology file for SmartGrid network, for v 3.2
+// Topology file for SmartGrid network, for v 3.2+
 
 //Devices, their role and their DPIDs
 //Role 0 = access, role 1 = transit

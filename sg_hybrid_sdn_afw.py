@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adaptive Firewall for Smart Grid Security, v 3.2
+# Adaptive Firewall for Smart Grid Security, v 3.2.1
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -117,11 +117,11 @@ class SimpleSwitch13(app_manager.RyuApp):
     def fw_init(self, datapath):
       parser = datapath.ofproto_parser
       ofproto = datapath.ofproto
-      self.logger.info("FW Initialization started... ")
+      self.logger.info("FW Initialization started (dpid: %d)...", datapath.id)
       fileLoader = FileLoader()
       topology = fileLoader.getTopology()
 
-      listofmatches = fileLoader.getFWRulesMatches(parser)
+      listofmatches = fileLoader.getFWRulesMatches(parser, datapath.id)
       self.logger.info("Topology loaded... \nFile with rules loaded... \nApplying %s rules...",
                        len(listofmatches))
 

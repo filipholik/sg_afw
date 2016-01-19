@@ -1,4 +1,4 @@
-#For versions  3.2
+#For versions  3.2.1
 import os
 from ryu.ofproto import ofproto_v1_3
 
@@ -43,11 +43,11 @@ class FileLoader():
             if position == 0:
               switch_name = w
             if position == 1:
-              transit = w
+              transit = int(w)
             if position == 2:
               self.topology.addSwitchNames(switch_name, w)
               if transit == 1:
-                topology.addTransitDevice(w)
+                self.topology.addTransitDevice(w)
             position += 1
 
         if len(sepparated) == 2:
@@ -108,19 +108,19 @@ class FileLoader():
     self.loadTopologyFile()
     return self.topology
 
-  #TODO WTF???
-  def getDict(self):
-       self.loadFile()
-       return self.mac_addresses
-
-  def getFWRulesMatches(self, parser):
+  def getFWRulesMatches(self, parser, dpid):
     listofrules = self.get_rules_mac()
     listofmatches = []
     for rule in listofrules:
-      listofmatches.append(self.createMatch(rule, parser))
+      match = self.createMatch(rule, parser, dpid)
+      if match != 0:
+        listofmatches.append(match)
     return listofmatches
 
-  def createMatch(self, rule, parser):
+  def createMatch(self, rule, parser, dpid):
+    if self.isRuleNeeded(rule, dpid) != 1:
+      return 0
+
     if rule.src == 0 or rule.dst == 0 or rule.l2_proto == 0:
       return parser.OFPMatch()
     #L2 rule
@@ -149,6 +149,21 @@ class FileLoader():
                 eth_type = int(rule.l2_proto, 16), ip_proto = int(rule.l3_proto),
                 ipv4_src = rule.ipv4_src, ipv4_dst = rule.ipv4_dst,
                 udp_src = int(rule.udp_source), udp_dst = int(rule.udp_destination))
+
+  #Function verifies, if the rule is needed to be inserted on the particular switch
+  def isRuleNeeded(self, rule, dpid):
+    if str(dpid) in self.topology.transit_devices:
+      return 1
+    #Device is access switch
+    if str(dpid) not in self.topology.access_devicesdict:
+      self.topology.getErr()
+      return -1
+    else:
+      macs = self.topology.access_devicesdict[str(dpid)]
+      if rule.src in macs or rule.dst in macs:
+        return 1
+      else:
+        return 0
 
 
 class Rule():
@@ -183,8 +198,8 @@ class Topology():
         return 0
 
     def addTransitDevice(self, dpid):
-      if dpid not in transit_devices:
-        transit_devices.append(dpid)
+      if dpid not in self.transit_devices:
+        self.transit_devices.append(dpid)
         return 1
       else:
         return 0
