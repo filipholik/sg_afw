@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adaptive Firewall for Smart Grid Security, v 3.2.1
+# Adaptive Firewall for Smart Grid Security, v 3.2.2
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -310,30 +310,44 @@ class SimpleSwitch13(app_manager.RyuApp):
       else:
         return self.traffic[int(dpid)]
 
+    def setNewFWRule(self, rule):
+      self.logger.info('New FW rule received... ')
+
 
 #---------------- Class for HTTP REST API -----------------------------
 class SGController(ControllerBase):
+  def __init__(self, req, link, data, **config):
+    super(SGController, self).__init__(req, link, data, **config)
+    self.sg_app = data[sg_controller_instance_name]
+    self.sg_switch = self.sg_app
 
-   def __init__(self, req, link, data, **config):
-      super(SGController, self).__init__(req, link, data, **config)
-      self.sg_app = data[sg_controller_instance_name]
+  @route('fw', url, methods = ['GET'], requirements = {'dpid': dpid_lib.DPID_PATTERN})
+  def list_fw_rules(self, req, **kwargs):
+    #sg_switch = self.sg_app
+    dpid = dpid_lib.str_to_dpid(kwargs['dpid'])
 
-   @route('fw', url, methods = ['GET'], requirements = {'dpid': dpid_lib.DPID_PATTERN})
-   def list_fw_rules(self, req, **kwargs):
-      sg_switch = self.sg_app
-      dpid = dpid_lib.str_to_dpid(kwargs['dpid'])
+    rules_table = self.sg_switch.getFlows(kwargs['dpid'])
 
-      rules_table = sg_switch.getFlows(kwargs['dpid'])
+    if rules_table == 0:
+      return Response(status = 404)
 
-      if rules_table == 0:
-         return Response(status = 404)
+    body = json.dumps(rules_table)
+    return Response(content_type ='application/json', body = body )
 
-      body = json.dumps(rules_table)
-      return Response(content_type ='application/json', body = body )
+  @route('fw', url2, methods = ['GET'], requirements = {'dpid': dpid_lib.DPID_PATTERN})
+  def list_fw_traffic(self, req, **kwargs):
+    #sg_switch = self.sg_app
+    traffic = self.sg_switch.getTraffic(kwargs['dpid'])
+    body = json.dumps(traffic)
+    return Response(content_type='application/json', body = body)
 
-   @route('fw', url2, methods = ['GET'], requirements = {'dpid': dpid_lib.DPID_PATTERN})
-   def list_fw_traffic(self, req, **kwargs):
-      sg_switch = self.sg_app
-      traffic = sg_switch.getTraffic(kwargs['dpid'])
-      body = json.dumps(traffic)
-      return Response(content_type='application/json', body = body)
+  @route('fw', url, methods = ['POST'], requirements = {'dpid': dpid_lib.DPID_PATTERN})
+  def insert_fw_rule(self, req, **kwargs):
+    self.sg_switch.setNewFWRule("Rule")
+    return Response(status = 403)
+
+    return Response(content_type='application/json', body = body)
+
+
+
+
