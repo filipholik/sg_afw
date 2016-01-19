@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adaptive Firewall for Smart Grid Security, v3.1
+# Adaptive Firewall for Smart Grid Security, v 3.2
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -115,67 +115,19 @@ class SimpleSwitch13(app_manager.RyuApp):
 
 
     def fw_init(self, datapath):
-       parser = datapath.ofproto_parser
-       ofproto = datapath.ofproto
-       self.logger.info("FW Initialization started... ")
-       fileLoader = FileLoader()
-       rules = fileLoader.get_rules_mac()
+      parser = datapath.ofproto_parser
+      ofproto = datapath.ofproto
+      self.logger.info("FW Initialization started... ")
+      fileLoader = FileLoader()
+      topology = fileLoader.getTopology()
 
-       self.logger.info("Adding %s rules... ", len(rules))
-       for rule in rules:
-          #L2 rules only
-          if rule.l3_proto == 0:
-             self.logger.info("Adding flow: %s -> %s, L2 proto: %s",
-                rule.src, rule.dst, rule.l2_proto)
-             match = parser.OFPMatch(eth_dst = rule.dst, eth_src = rule.src,
-                eth_type = int(rule.l2_proto, 16))
-          #L3 protocol defined, but no IP addresses
-          elif rule.ipv4_src == 0:
-             self.logger.info("Adding flow: %s -> %s, L2 proto: %s, L3 proto: %s",
-                rule.src, rule.dst, rule.l2_proto, rule.l3_proto)
-             match = parser.OFPMatch(eth_dst = rule.dst, eth_src = rule.src,
-                eth_type = int(rule.l2_proto, 16), ip_proto = int(rule.l3_proto))
-          #L3 protocol + IP addresses
-          elif rule.l3_proto != 6 and rule.l3_proto != 17 :
-             self.logger.info(
-                "Adding flow: %s -> %s, L2 proto: %s, L3 proto: %s, %s -> %s",
-                rule.src, rule.dst, rule.l2_proto, rule.l3_proto,
-                rule.ipv4_src, rule.ipv4_dst)
-             match = parser.OFPMatch(eth_dst = rule.dst, eth_src = rule.src,
-                eth_type = int(rule.l2_proto, 16), ip_proto = int(rule.l3_proto),
-                ipv4_src = rule.ipv4_src, ipv4_dst = rule.ipv4_dst)
-          #L4 ports
-          else:
-            l4_proto = ""
-            l4_src = 0
-            l4_dst = 0
-            if rule.tcp_source != 0:
-              l4_proto = "TCP"
-              l4_src = rule.tcp_source
-              l4_dst = rule.tcp_destination
-            else:
-              l4_proto = "UDP"
-              l4_src = udp_source
-              l4_dst = udp_destination
+      listofmatches = fileLoader.getFWRulesMatches(parser)
+      self.logger.info("Topology loaded... \nFile with rules loaded... \nApplying %s rules...",
+                       len(listofmatches))
 
-            self.logger.info(
-                "Adding flow: %s -> %s, L2 proto: %s, L3 proto: %s, %s -> %s, %s: %s -> %s",
-                rule.src, rule.dst, rule.l2_proto, rule.l3_proto,
-                rule.ipv4_src, rule.ipv4_dst, l4_proto, l4_src, l4_dst)
-            if l4_proto == "TCP":
-              match = parser.OFPMatch(eth_dst = rule.dst, eth_src = rule.src,
-                eth_type = int(rule.l2_proto, 16), ip_proto = int(rule.l3_proto),
-                ipv4_src = rule.ipv4_src, ipv4_dst = rule.ipv4_dst,
-                tcp_src = int(rule.tcp_source), tcp_dst = int(rule.tcp_destination))
-            if l4_proto == "UDP":
-              match = parser.OFPMatch(eth_dst = rule.dst, eth_src = rule.src,
-                eth_type = int(rule.l2_proto, 16), ip_proto = int(rule.l3_proto),
-                ipv4_src = rule.ipv4_src, ipv4_dst = rule.ipv4_dst,
-                udp_src = int(rule.udp_source), udp_dst = int(rule.udp_destination))
-
-          self.add_flow(datapath, 3, 120, 100, match,
+      for match in listofmatches:
+        self.add_flow(datapath, 3, 120, 100, match,
              [parser.OFPActionOutput(ofproto.OFPP_NORMAL)])
-
 
     def add_flow(self, datapath, priority, idle_timeout, table_id, match, actions, buffer_id=None):
         ofproto = datapath.ofproto
