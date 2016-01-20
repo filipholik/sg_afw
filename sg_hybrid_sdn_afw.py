@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adaptive Firewall for Smart Grid Security, 3.2.3
+# Adaptive Firewall for Smart Grid Security, 3.2.4
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -88,13 +88,12 @@ class SimpleSwitch13(app_manager.RyuApp):
 
         #TODO set idle_timeouts to 0 - infinity, 180 only for testing purposes
 
-
         #LLDP frames
-        self.add_flow(datapath, 1, 180, 100, parser.OFPMatch(eth_type=0x88cc), actions)
+        self.add_flow(datapath, 10, 180, 100, parser.OFPMatch(eth_type=0x88cc), actions)
 
         #Hybrid SDN Config -----------------------------------------
         #BDDP frames
-        self.add_flow(datapath, 1, 180, 100, parser.OFPMatch(eth_type=0x8999), actions)
+        self.add_flow(datapath, 10, 180, 100, parser.OFPMatch(eth_type=0x8999), actions)
 
         #ARP frames
         #self.add_flow(datapath, 1, 180, 100, parser.OFPMatch(eth_type=2054), action_normal)
@@ -103,13 +102,13 @@ class SimpleSwitch13(app_manager.RyuApp):
         inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,
                                              actions)]
         mod = parser.OFPFlowMod(datapath, table_id=100, command=ofproto.OFPFC_ADD, idle_timeout = 180,
-                                priority = 0, match=parser.OFPMatch(eth_type=2054), instructions=instruction_200)
+                                priority = 10, match=parser.OFPMatch(eth_type=2054), instructions=instruction_200)
         datapath.send_msg(mod)
         # rule itself must be inserted in table 200 (supports copying of packets)
-        self.add_flow(datapath, 1, 180, 200, parser.OFPMatch(eth_type=2054), action_copy)
+        self.add_flow(datapath, 10, 180, 200, parser.OFPMatch(eth_type=2054), action_copy)
 
         #Deny everything else - send it to the controller
-        self.add_flow(datapath, 0, 180, 100, match, actions)
+        self.add_flow(datapath, 1, 180, 100, match, actions)
 
         self.fw_init(datapath)
 
@@ -126,7 +125,7 @@ class SimpleSwitch13(app_manager.RyuApp):
                        len(listofmatches))
 
       for match in listofmatches:
-        self.add_flow(datapath, 3, 120, 100, match,
+        self.add_flow(datapath, 5, 120, 100, match,
              [parser.OFPActionOutput(ofproto.OFPP_NORMAL)])
 
     def add_flow(self, datapath, priority, idle_timeout, table_id, match, actions, buffer_id=None):
@@ -209,8 +208,6 @@ class SimpleSwitch13(app_manager.RyuApp):
 
         self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
 
-        #tr = src + " -> " + dst + ", " + str(eth.ethertype)
-        #self.traffic.append(tr)
         self.captureTraffic(ev)
 
         # learn a mac address to avoid FLOOD next time.
@@ -247,15 +244,15 @@ class SimpleSwitch13(app_manager.RyuApp):
         elif out_port == ofproto.OFPP_FLOOD:
            self.logger.info("Flooding not allowed anymore... ")
            self.logger.info("Deny rule inserted to block this traffic... ")
-           #self.add_flow(datapath,2, 120, 100, parser.OFPMatch
-            #  (eth_dst = dst, eth_src = src, eth_type = eth_vlan.ethertype), [])
+           self.add_flow(datapath,3, 10, 100, parser.OFPMatch
+             (eth_dst = dst, eth_src = src, eth_type = eth_vlan.ethertype), [])
 
            #datapath.send_msg(out)
         else:
            self.logger.info("Traffic blocked by Controller... ")
            match = parser.OFPMatch(eth_dst = dst, eth_src = src,
                eth_type = eth_vlan.ethertype)
-           #self.add_flow(datapath, 2, 120, 100, match, [])
+           self.add_flow(datapath, 3, 10, 100, match, [])
 
 
     def captureTraffic(self, ev):
@@ -263,8 +260,18 @@ class SimpleSwitch13(app_manager.RyuApp):
       datapath = msg.datapath
       pkt = packet.Packet(msg.data)
       eth = pkt.get_protocols(ethernet.ethernet)[0]
+      eth_type = eth.ethertype
+      #if encapsulated in VLAN - 802.1Q
+      if eth.ethertype == ether_types.ETH_TYPE_8021Q:
+        eth_vlan = pkt.get_protocols(vlan.vlan)[0]
+        eth_type = eth_vlan.ethertype
+
       capturedTraffic = []
-      message = eth.src + " -> " + eth.dst + ", proto: " + str(eth.ethertype)
+      #message = eth.src + " -> " + eth.dst + ", proto: " + str(eth.ethertype)
+      message = []
+      message.append('eth_src = %s'%(eth.src))
+      message.append('eth_dst = %s'%(eth.dst))
+      message.append('l2_proto = %d'%(eth_type))
 
       if datapath.id in self.traffic:
         capturedTraffic = self.traffic[datapath.id]

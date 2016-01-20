@@ -1,4 +1,4 @@
-#For versions  3.2.1 - 3.2.3
+#For versions  3.2.1+
 import os
 from ryu.ofproto import ofproto_v1_3
 
