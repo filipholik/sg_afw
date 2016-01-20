@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adaptive Firewall for Smart Grid Security, v 3.2.2
+# Adaptive Firewall for Smart Grid Security, 3.2.3
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -282,7 +282,7 @@ class SimpleSwitch13(app_manager.RyuApp):
       self.logger.info('Flow_stats_reply received... ')
       flows = []
       for stat in ev.msg.body:
-        flows.append('table_id=%s'
+        '''flows.append('table_id=%s '
                      'duration_sec=%d duration_nsec=%d '
                      'priority=%d '
                      'idle_timeout=%d hard_timeout=%d flags=0x%04x '
@@ -293,7 +293,16 @@ class SimpleSwitch13(app_manager.RyuApp):
                       stat.priority,
                       stat.idle_timeout, stat.hard_timeout, stat.flags,
                       stat.cookie, stat.packet_count, stat.byte_count,
-                      stat.match, stat.instructions))
+                      stat.match, stat.instructions))'''
+        flows.append('table_id = %s'%(stat.table_id))
+        flows.append('priority = %d'%(stat.priority))
+        flows.append('duration_sec = %d'%(stat.duration_sec))
+        flows.append('idle_timeout = %d'%(stat.idle_timeout))
+        flows.append('packet_count = %d'%(stat.packet_count))
+        flows.append('match = %s'%(stat.match))
+        flows.append('instructions = %s'%(stat.instructions))
+
+
       #self.logger.info('FlowStats: %s', flows)
       datapath = ev.msg.datapath
       self.flowtablesdict[datapath.id] = flows
