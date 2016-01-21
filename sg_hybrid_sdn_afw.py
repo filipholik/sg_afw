@@ -13,11 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adaptive Firewall for Smart Grid Security, 3.3
+# Adaptive Firewall for Smart Grid Security, 3.3.1
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
-from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER
+from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER, HANDSHAKE_DISPATCHER
 from ryu.controller.handler import set_ev_cls
 from ryu.ofproto import ofproto_v1_3
 from ryu.lib.packet import packet
@@ -28,7 +28,7 @@ from ryu.ofproto import inet
 from ryu.lib.packet import ipv4
 from ryu.lib.packet import vlan
 
-from ryu.ofproto.ofproto_v1_2 import OFPG_ANY
+from ryu.ofproto.ofproto_v1_3 import OFPG_ANY
 
 import time
 import json
@@ -50,7 +50,7 @@ class SimpleSwitch13(app_manager.RyuApp):
     _CONTEXTS = { 'wsgi' : WSGIApplication }
 
     flowtablesdict = {} #Flow Tables of all switches
-    traffic = {}
+    trafficdict = {} #DPIDS, Array of captured traffic - dicts
     #fileloader
     #datapathdict
 
@@ -139,11 +139,12 @@ class SimpleSwitch13(app_manager.RyuApp):
         if buffer_id:
             mod = parser.OFPFlowMod(datapath=datapath, buffer_id=buffer_id,
                                     priority=priority, match=match,
-                                    idle_timeout=idle_timeout, instructions=inst, table_id=table_id)
+                                    idle_timeout=idle_timeout, instructions=inst,
+                                    table_id=table_id, flags=ofproto.OFPFF_SEND_FLOW_REM)
         else:
             mod = parser.OFPFlowMod(datapath=datapath, priority=priority,
                                     match=match, idle_timeout=idle_timeout, instructions=inst,
-                                    table_id=table_id)
+                                    table_id=table_id, flags=ofproto.OFPFF_SEND_FLOW_REM)
         datapath.send_msg(mod)
 
 
@@ -268,42 +269,76 @@ class SimpleSwitch13(app_manager.RyuApp):
         eth_vlan = pkt.get_protocols(vlan.vlan)[0]
         eth_type = eth_vlan.ethertype
 
-      capturedTraffic = []
+      capturedTraffic = {}
       #message = eth.src + " -> " + eth.dst + ", proto: " + str(eth.ethertype)
-      message = []
+      '''message = []
       message.append('eth_src = %s'%(eth.src))
       message.append('eth_dst = %s'%(eth.dst))
-      message.append('l2_proto = %d'%(eth_type))
+      message.append('l2_proto = %d'%(eth_type))'''
 
-      if datapath.id in self.traffic:
-        capturedTraffic = self.traffic[datapath.id]
-        if message in capturedTraffic:
-          self.logger.info('This type of traffic already exists... ')
-          #TODO add timers when traffic lastly capture, update here...
+      capturedTraffic['eth_src'] = eth.src
+      capturedTraffic['eth_dst'] = eth.dst
+      capturedTraffic['eth_type'] = eth_type
+
+      allTraffic = []
+      if datapath.id in self.trafficdict:
+        allTraffic = self.trafficdict[datapath.id]
+        if capturedTraffic in allTraffic:
+          self.logger.info('Traffic already captured... ')
           return
 
-      capturedTraffic.append(message)
-      self.traffic[datapath.id] = capturedTraffic
+      allTraffic.append(capturedTraffic)
+      self.trafficdict[datapath.id] = allTraffic
+
       self.logger.info('New traffic captured... ')
 
-      @set_ev_cls(ofp_event.EventOFPFlowRemoved, MAIN_DISPATCHER)
-      def flow_removed_handler(self, ev):
-          msg = ev.msg
-          dp = msg.datapath
-          ofp = dp.ofproto
+    @set_ev_cls(ofp_event.EventOFPFlowRemoved, MAIN_DISPATCHER)
+    def flow_removed_handler(self, ev):
+      self.logger.info('Flow_removed notification received... ')
+      msg = ev.msg
+      dp = msg.datapath
+      ofp = dp.ofproto
 
-          if msg.reason == ofp.OFPRR_IDLE_TIMEOUT:
-              reason = 'IDLE TIMEOUT'
-          elif msg.reason == ofp.OFPRR_HARD_TIMEOUT:
-              reason = 'HARD TIMEOUT'
-          elif msg.reason == ofp.OFPRR_DELETE:
-              reason = 'DELETE'
-          elif msg.reason == ofp.OFPRR_GROUP_DELETE:
-              reason = 'GROUP DELETE'
-          else:
-              reason = 'unknown'
+      matchfields = msg.match
+      #OFPMatch(oxm_fields={'eth_src': 'fa:16:3e:30:cc:04', 'eth_dst': 'fa:16:3e:57:f6:e8', 'eth_type': 2054})
+      eth_src = 0
+      eth_dst = 0
+      eth_type = 0
+      for the_key, value in matchfields.iteritems():
+        if the_key == "eth_src":
+          eth_src = value
+        if the_key == "eth_dst":
+          eth_dst = value
+        if the_key == "eth_type":
+          eth_type = value
 
-          self.logger.debug('OFPFlowRemoved received: '
+      allTraffic = self.trafficdict[dp.id]
+      for tr in allTraffic:
+        self.logger.info('SRC: ' + tr['eth_src'] + " DST: " +tr['eth_dst'])
+
+      if matchfields in allTraffic:
+        self.logger.info('Deleting existing traffic' )
+      else:
+        self.logger.info('Traffic not found')
+
+
+      #self.logger.info('Field: ' + the_key + ' value: ' + value)
+
+
+
+
+      if msg.reason == ofp.OFPRR_IDLE_TIMEOUT:
+        reason = 'IDLE TIMEOUT'
+      elif msg.reason == ofp.OFPRR_HARD_TIMEOUT:
+        reason = 'HARD TIMEOUT'
+      elif msg.reason == ofp.OFPRR_DELETE:
+        reason = 'DELETE'
+      elif msg.reason == ofp.OFPRR_GROUP_DELETE:
+        reason = 'GROUP DELETE'
+      else:
+        reason = 'unknown'
+
+      '''self.logger.info('OFPFlowRemoved received: '
                             'cookie=%d priority=%d reason=%s table_id=%d '
                             'duration_sec=%d duration_nsec=%d '
                             'idle_timeout=%d hard_timeout=%d '
@@ -312,7 +347,7 @@ class SimpleSwitch13(app_manager.RyuApp):
                             msg.duration_sec, msg.duration_nsec,
                             msg.idle_timeout, msg.hard_timeout,
                             msg.packet_count, msg.byte_count, msg.match)
-
+      '''
 
 
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
@@ -352,10 +387,18 @@ class SimpleSwitch13(app_manager.RyuApp):
         return self.flowtablesdict[int(dpid)]
 
     def getTraffic(self, dpid):
-      if int(dpid) not in self.traffic:
+      if int(dpid) not in self.trafficdict:
         return "Datapath ID entry not found... "
       else:
-        return self.traffic[int(dpid)]
+        allTraffic = self.trafficdict[int(dpid)]
+        trlist = []
+        for tr in allTraffic:
+          trlist.append(tr['eth_src'])
+          trlist.append(tr['eth_dst'])
+          trlist.append(tr['eth_type'])
+
+        #self.logger.info('SRC: ' + tr['eth_src'] + " DST: " +tr['eth_dst'])
+        return trlist
 
     def setNewFWRule(self, data):
       self.logger.info('New FW rule received... ' )
@@ -385,6 +428,14 @@ class SimpleSwitch13(app_manager.RyuApp):
       self.add_flow(datapath, 5, 120, 100, match,
                     [parser.OFPActionOutput(ofproto.OFPP_NORMAL)])
       self.logger.info('New FW rule applied... ' )
+
+    @set_ev_cls(ofp_event.EventOFPErrorMsg,
+            [HANDSHAKE_DISPATCHER, CONFIG_DISPATCHER, MAIN_DISPATCHER])
+    def error_msg_handler(self, ev):
+      msg = ev.msg
+      self.logger.info('OFPErrorMsg received: type=0x%02x code=0x%02x '
+                      'message=%s',
+                      msg.type, msg.code, utils.hex_array(msg.data))
 
 
 #---------------- Class for HTTP REST API -----------------------------

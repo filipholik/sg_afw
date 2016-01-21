@@ -1,4 +1,4 @@
-# Web application for Adaptive Firewall for Smart Grid Security (3.3)
+# Web application for Adaptive Firewall for Smart Grid Security (3.3.1)
 
 from flask import Flask
 from flask import request
@@ -35,10 +35,13 @@ def rules():
   page = menu + '<h2 ' + css_h2 + '>Active rules </h2>'
   page += '<div style="text-align:center">'
   httpRequest = ""
-  conn = httplib.HTTPConnection("127.0.0.1",8080)
+  try:
+    conn = httplib.HTTPConnection("127.0.0.1",8080)
   #---JSON Switch2---
-  conn.request("GET","/fw/rules/2960111173765568",httpRequest)
-  response = conn.getresponse()
+    conn.request("GET","/fw/rules/2960111173765568",httpRequest)
+    response = conn.getresponse()
+  except:
+    return error()
   page += "<h3>Switch2</h3> \n"
   if response.status == 200:
     data = json.load(response)
@@ -48,8 +51,11 @@ def rules():
   conn.close()
 
   #---JSON Switch4---
-  conn.request("GET","/fw/rules/2991443865190400",httpRequest)
-  response = conn.getresponse()
+  try:
+    conn.request("GET","/fw/rules/2991443865190400",httpRequest)
+    response = conn.getresponse()
+  except:
+    return error()
   page += "<h3>Switch4</h3>"
   if response.status == 200:
     data = json.load(response)
@@ -70,8 +76,11 @@ def traffic():
   conn = httplib.HTTPConnection("127.0.0.1",8080)
 
   #---JSON Switch2---
-  conn.request("GET","/fw/traffic/2960111173765568",httpRequest)
-  response = conn.getresponse()
+  try:
+    conn.request("GET","/fw/traffic/2960111173765568",httpRequest)
+    response = conn.getresponse()
+  except:
+    return error()
   page += "<h3>Switch2</h3>"
   if response.status == 200:
     data = json.load(response)
@@ -133,8 +142,11 @@ def printTraffic(data):
   \n"""
   #print data
 
+  if len(data) % 3 != 0:
+    return "Unknown data format"
+
   num = 1
-  for d in data:
+  '''for d in data:
     index = 0
     color = "white"
     if num % 2 == 0:
@@ -152,9 +164,27 @@ def printTraffic(data):
       index += 1
       if index == 3:
         page += "<td><a href='/todo'style='color:black;'>ALLOW</a>  </td></tr>"
-        index = 0
+        index = 0'''
+  index = 0
+  for d in data:
+    color = "white"
+    if num % 2 == 0:
+      color = "#E0FFFF"
+    if index == 0:
+      page += '<tr style="text-align:center; background-color: ' + color +'"><td>' + str(num) + '</td>'
+      page += "<td>" + str(d) + "</td>"
+    if index == 1:
+      page += "<td>" + str(d) + "</td>"
+    if index == 2:
+      page += "<td>" + decodeEthProto(str(d)) + ": " + str(d) +   "</td>"
+      page += "<td><a href='/todo'style='color:black;'>ALLOW</a>  </td></tr>"
+      num += 1
+      index = 0
+      continue
+    index += 1
 
   page += "</table>"
+
   return page
 
 def decodeEthProto(eth_proto):
@@ -222,6 +252,8 @@ def processRuleRequest():
   #data['rule'] = rule
   jsonrule = json.dumps(rule)
   responsestatus = sendNewRule(jsonrule)
+  if responsestatus == -1:
+    return error()
   if responsestatus == 200:
     page = menu + '<h2 ' + css_h2 + '>Rule sent </h2>'
     page += '<div style="text-align:center">'
@@ -241,11 +273,14 @@ def processRuleRequest():
 
 def sendNewRule(rule):
   httpRequest = rule
-  conn = httplib.HTTPConnection("127.0.0.1",8080)
-  #---JSON Switch2---
-  conn.request("POST","/fw/rules/2960111173765568",httpRequest)
-  response = conn.getresponse()
-  return response.status
+  try:
+    conn = httplib.HTTPConnection("127.0.0.1",8080)
+    conn.request("POST","/fw/rules/2960111173765568",httpRequest)
+    response = conn.getresponse()
+    return response.status
+  except:
+    return -1
+
 
 @app.route('/todo')
 def todo():
@@ -257,6 +292,17 @@ def todo():
   page += "<a href='/'style='color:black;'>Main page</a> "
   page += "</div>"
   return page_header + page
+
+def error():
+  page = menu + '<h2 ' + css_h2 + '>Connection error </h2>'
+  page += '<div style="text-align:center">'
+  #page += menu
+  page += "<h3> Connection not established </h3>"
+  page += "<p>The application could not connect to the RYU controller... </p>"
+  page += "<a href='/'style='color:black;'>Main page</a> "
+  page += "</div>"
+  return page_header + page
+
 
 
 if __name__ == '__main__':
