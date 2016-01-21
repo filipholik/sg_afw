@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adaptive Firewall for Smart Grid Security, 3.3.1
+# Adaptive Firewall for Smart Grid Security, 3.3.2
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -311,23 +311,20 @@ class SimpleSwitch13(app_manager.RyuApp):
           eth_dst = value
         if the_key == "eth_type":
           eth_type = value
-
+      deleted = {}
+      deleted['eth_src'] = eth_src
+      deleted['eth_dst'] = eth_dst
+      deleted['eth_type'] = eth_type
       allTraffic = self.trafficdict[dp.id]
       for tr in allTraffic:
-        self.logger.info('SRC: ' + tr['eth_src'] + " DST: " +tr['eth_dst'])
+        self.logger.info('SRC: ' + tr['eth_src'] + " DST: " +tr['eth_dst'] + "Proto: " + str(tr['eth_type']))
 
-      if matchfields in allTraffic:
+      if deleted in allTraffic:
         self.logger.info('Deleting existing traffic' )
-      else:
-        self.logger.info('Traffic not found')
+        allTraffic.remove(deleted)
+        self.trafficdict[dp.id] = allTraffic
 
-
-      #self.logger.info('Field: ' + the_key + ' value: ' + value)
-
-
-
-
-      if msg.reason == ofp.OFPRR_IDLE_TIMEOUT:
+      '''if msg.reason == ofp.OFPRR_IDLE_TIMEOUT:
         reason = 'IDLE TIMEOUT'
       elif msg.reason == ofp.OFPRR_HARD_TIMEOUT:
         reason = 'HARD TIMEOUT'
@@ -336,7 +333,7 @@ class SimpleSwitch13(app_manager.RyuApp):
       elif msg.reason == ofp.OFPRR_GROUP_DELETE:
         reason = 'GROUP DELETE'
       else:
-        reason = 'unknown'
+        reason = 'unknown'''
 
       '''self.logger.info('OFPFlowRemoved received: '
                             'cookie=%d priority=%d reason=%s table_id=%d '

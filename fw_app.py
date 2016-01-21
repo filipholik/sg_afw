@@ -1,10 +1,12 @@
-# Web application for Adaptive Firewall for Smart Grid Security (3.3.1)
+# Web application for Adaptive Firewall for Smart Grid Security (3.3.2)
 
 from flask import Flask
 from flask import request
 import httplib #for Python 2.x
 import json
 from pprint import pprint
+
+from flask import make_response
 
 
 app = Flask(__name__)
@@ -103,6 +105,13 @@ def traffic():
   page += "</div>"
   return page_header + page
 
+  #TODO auto refresh
+  '''
+  r = make_response()
+  r.headers.set('<META HTTP-EQUIV="refresh" CONTENT="5">', "default-src 'self'")
+  return r
+  '''
+
 def printTable(data):
   page = """<table border="1" style="width:80%; margin-left:10%">\n
   <tr> <th>Number </th> <th> Table ID </th> <th> Prio </th>
@@ -143,7 +152,11 @@ def printTraffic(data):
   #print data
 
   if len(data) % 3 != 0:
+    return data
     return "Unknown data format"
+
+  if len(data) == 0:
+    page += "<tr> <td colspan='5' style='text-align:center; '>No denied traffic</td></tr>"
 
   num = 1
   '''for d in data:
