@@ -1,4 +1,4 @@
-# Web application for Adaptive Firewall for Smart Grid Security (3.2.4)
+# Web application for Adaptive Firewall for Smart Grid Security (3.3)
 
 from flask import Flask
 from flask import request
@@ -14,7 +14,7 @@ menu = """
 <h3 style="background-color:98AFC7; text-align:center;">
   <a href='/' style='color:black; '>Main page</a>
   <a href='/rules' style='color:black; margin-left:10px'>Display active rules</a>
-  <a href='/todo' style='color:black; margin-left:10px'>Add a new rule</a>
+  <a href='/newrule' style='color:black; margin-left:10px'>Add a new rule</a>
   <a href='/traffic' style='color:black; margin-left:10px'>Display denied traffic</a>
 </h3>
 
@@ -163,6 +163,89 @@ def decodeEthProto(eth_proto):
   if int(eth_proto) == 2054:
     return "ARP"
   return "uknown"
+
+@app.route('/newrule')
+def newRule():
+  page = menu + '<h2 ' + css_h2 + '>Add a new rule </h2>'
+  page += '<div style="text-align:center">'
+  #page += menu
+  page += "<h3> Insert a new FW rule into the network </h3>"
+  page += "<p>Field marked with * are required.  </p>"
+
+  page += """
+  <form action="/sendRule" method="post" accept-charset="UTF-8"
+  enctype="application/json" autocomplete="off" novalidate
+  style="width:80%; margin-left:10%; " >
+  <fieldset>
+    <legend>Rule:</legend>
+    Source MAC:
+    <input type="text" name="src" value="fa:16:3e:30:cc:04"><br>
+    Destination MAC:
+    <input type="text" name="dst" value="fa:16:3e:5e:c6:ef"><br>
+    Ethernet protocol:
+    <select name="proto">
+      <option value="0x0800">IP</option>
+      <option value="0">Anything</option>
+    </select>
+    <br>
+    Rule type:
+    <select name="type">
+      <option value="2">Two-ways</option>
+      <option value="1">One-way</option>
+    </select>
+    <br>
+    <input type="submit" value="Insert rule">
+  </fieldset>
+</form>
+
+  """
+
+  #page += "<a href='/'style='color:black;'>Main page</a> "
+  page += "</div>"
+  return page_header + page
+
+@app.route('/sendRule', methods=['POST'])
+def processRuleRequest():
+
+  '''if request.method == 'POST': '''
+  src = request.form['src']
+  dst = request.form['dst']
+  proto = request.form['proto']
+  ruletype = request.form['type']
+
+  #data = {}
+  rule = []
+  rule.append(src)
+  rule.append(dst)
+  rule.append(proto)
+  rule.append(ruletype)
+  #data['rule'] = rule
+  jsonrule = json.dumps(rule)
+  responsestatus = sendNewRule(jsonrule)
+  if responsestatus == 200:
+    page = menu + '<h2 ' + css_h2 + '>Rule sent </h2>'
+    page += '<div style="text-align:center">'
+    #page += menu
+    page += "<h3> Rule was applied successfully </h3>"
+    page += "<p>Rule: "+ src +" -> "+ dst +" ("+ ruletype +"-way)</p>"
+  else:
+    page = menu + '<h2 ' + css_h2 + '>Error when applying rule </h2>'
+    page += '<div style="text-align:center">'
+    #page += menu
+    page += "<h3> Rule was not applied. Response status: "+ str(responsestatus) +" </h3>"
+
+  page += "<a href='/'style='color:black;'>Main page</a> "
+  page += "</div>"
+  return page_header + page
+
+
+def sendNewRule(rule):
+  httpRequest = rule
+  conn = httplib.HTTPConnection("127.0.0.1",8080)
+  #---JSON Switch2---
+  conn.request("POST","/fw/rules/2960111173765568",httpRequest)
+  response = conn.getresponse()
+  return response.status
 
 @app.route('/todo')
 def todo():

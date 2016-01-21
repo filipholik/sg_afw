@@ -6,6 +6,7 @@ IED2 fa:16:3e:d9:48:74
 IED3 fa:16:3e:eb:f0:a5
 IED4 fa:16:3e:5e:c6:ef
 COL1 fa:16:3e:7c:83:ac
+COL2 fa:16:3e:57:f6:e8
 
 //Multicast address:
 LIB61850_MC 01:0c:cd:01:00:01

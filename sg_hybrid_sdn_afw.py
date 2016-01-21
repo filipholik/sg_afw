@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adaptive Firewall for Smart Grid Security, 3.2.4
+# Adaptive Firewall for Smart Grid Security, 3.3
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -51,6 +51,8 @@ class SimpleSwitch13(app_manager.RyuApp):
 
     flowtablesdict = {} #Flow Tables of all switches
     traffic = {}
+    #fileloader
+    #datapathdict
 
     def __init__(self, *args, **kwargs):
         super(SimpleSwitch13, self).__init__(*args, **kwargs)
@@ -102,10 +104,10 @@ class SimpleSwitch13(app_manager.RyuApp):
         inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,
                                              actions)]
         mod = parser.OFPFlowMod(datapath, table_id=100, command=ofproto.OFPFC_ADD, idle_timeout = 180,
-                                priority = 10, match=parser.OFPMatch(eth_type=2054), instructions=instruction_200)
+                                priority = 2, match=parser.OFPMatch(eth_type=2054), instructions=instruction_200)
         datapath.send_msg(mod)
         # rule itself must be inserted in table 200 (supports copying of packets)
-        self.add_flow(datapath, 10, 180, 200, parser.OFPMatch(eth_type=2054), action_copy)
+        self.add_flow(datapath, 2, 180, 200, parser.OFPMatch(eth_type=2054), action_copy)
 
         #Deny everything else - send it to the controller
         self.add_flow(datapath, 1, 180, 100, match, actions)
@@ -117,10 +119,10 @@ class SimpleSwitch13(app_manager.RyuApp):
       parser = datapath.ofproto_parser
       ofproto = datapath.ofproto
       self.logger.info("FW Initialization started (dpid: %d)...", datapath.id)
-      fileLoader = FileLoader()
-      topology = fileLoader.getTopology()
+      self.fileLoader = FileLoader()
+      topology = self.fileLoader.getTopology()
 
-      listofmatches = fileLoader.getFWRulesMatches(parser, datapath.id)
+      listofmatches = self.fileLoader.getFWRulesMatches(parser, datapath.id)
       self.logger.info("Topology loaded... \nFile with rules loaded... \nApplying %s rules...",
                        len(listofmatches))
 
@@ -180,7 +182,7 @@ class SimpleSwitch13(app_manager.RyuApp):
         pkt = packet.Packet(msg.data)
         eth = pkt.get_protocols(ethernet.ethernet)[0]
         eth_vlan = pkt.get_protocols(vlan.vlan)[0]
-        self.logger.info("F: protocol: %s, %s", eth, eth_vlan)
+        #self.logger.info("F: protocol: %s, %s", eth, eth_vlan)
         #test = packet.Packet(array.array('B', ev.msg.data))
         #for p in test.protocols:
         #   self.logger.info("Protocols: %s", p)
@@ -191,7 +193,7 @@ class SimpleSwitch13(app_manager.RyuApp):
            #self.logger.info("F: Received 802.1Q frame!")
            if eth_vlan.ethertype == 2054:
               allow_reason = "ARP packet (in 802.1Q)... "
-              allow_traffic = 1
+              #allow_traffic = 1
            if eth_vlan.ethertype == 35020:
               self.logger.info("Received LLDP frame (in 802.1Q). Exiting... ")
               return
@@ -206,7 +208,7 @@ class SimpleSwitch13(app_manager.RyuApp):
         dpid = datapath.id
         self.mac_to_port.setdefault(dpid, {})
 
-        self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
+        #self.logger.info("packet in %s %s %s %s", dpid, src, dst, in_port)
 
         self.captureTraffic(ev)
 
@@ -284,6 +286,35 @@ class SimpleSwitch13(app_manager.RyuApp):
       self.traffic[datapath.id] = capturedTraffic
       self.logger.info('New traffic captured... ')
 
+      @set_ev_cls(ofp_event.EventOFPFlowRemoved, MAIN_DISPATCHER)
+      def flow_removed_handler(self, ev):
+          msg = ev.msg
+          dp = msg.datapath
+          ofp = dp.ofproto
+
+          if msg.reason == ofp.OFPRR_IDLE_TIMEOUT:
+              reason = 'IDLE TIMEOUT'
+          elif msg.reason == ofp.OFPRR_HARD_TIMEOUT:
+              reason = 'HARD TIMEOUT'
+          elif msg.reason == ofp.OFPRR_DELETE:
+              reason = 'DELETE'
+          elif msg.reason == ofp.OFPRR_GROUP_DELETE:
+              reason = 'GROUP DELETE'
+          else:
+              reason = 'unknown'
+
+          self.logger.debug('OFPFlowRemoved received: '
+                            'cookie=%d priority=%d reason=%s table_id=%d '
+                            'duration_sec=%d duration_nsec=%d '
+                            'idle_timeout=%d hard_timeout=%d '
+                            'packet_count=%d byte_count=%d match.fields=%s',
+                            msg.cookie, msg.priority, reason, msg.table_id,
+                            msg.duration_sec, msg.duration_nsec,
+                            msg.idle_timeout, msg.hard_timeout,
+                            msg.packet_count, msg.byte_count, msg.match)
+
+
+
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
     def flow_stats_reply_handler(self, ev):
       self.logger.info('Flow_stats_reply received... ')
@@ -309,10 +340,10 @@ class SimpleSwitch13(app_manager.RyuApp):
         flows.append('match = %s'%(stat.match))
         flows.append('instructions = %s'%(stat.instructions))
 
-
       #self.logger.info('FlowStats: %s', flows)
       datapath = ev.msg.datapath
       self.flowtablesdict[datapath.id] = flows
+
 
     def getFlows(self, dpid):
       if int(dpid) not in self.flowtablesdict:
@@ -326,8 +357,34 @@ class SimpleSwitch13(app_manager.RyuApp):
       else:
         return self.traffic[int(dpid)]
 
-    def setNewFWRule(self, rule):
-      self.logger.info('New FW rule received... ')
+    def setNewFWRule(self, data):
+      self.logger.info('New FW rule received... ' )
+      rule = self.fileLoader.createANewRule(data)
+      #self.logger.info('Rule-type: ' + str(rule.twoway) )
+
+      for dpid in self.datapathdict:
+        datapath = self.datapathdict[dpid]
+        match = self.fileLoader.createMatch(rule, datapath.ofproto_parser, dpid)
+        if match == 0:
+          continue
+        else:
+          self.applyNewFWRule(datapath, match)
+          if rule.ruletype == 2:
+            rule = self.fileLoader.swapRuleSrcDst(rule)
+            match = self.fileLoader.createMatch(rule, datapath.ofproto_parser, dpid)
+            if match == 0:
+              continue
+            self.applyNewFWRule(datapath, match)
+
+      #self.logger.info('Data2: ' +str(data['data']) )
+      return 200
+
+    def applyNewFWRule(self, datapath, match):
+      parser = datapath.ofproto_parser
+      ofproto = datapath.ofproto
+      self.add_flow(datapath, 5, 120, 100, match,
+                    [parser.OFPActionOutput(ofproto.OFPP_NORMAL)])
+      self.logger.info('New FW rule applied... ' )
 
 
 #---------------- Class for HTTP REST API -----------------------------
@@ -359,8 +416,9 @@ class SGController(ControllerBase):
 
   @route('fw', url, methods = ['POST'], requirements = {'dpid': dpid_lib.DPID_PATTERN})
   def insert_fw_rule(self, req, **kwargs):
-    self.sg_switch.setNewFWRule("Rule")
-    return Response(status = 403)
+    rule = json.loads(req.body)
+    status = self.sg_switch.setNewFWRule(rule)
+    return Response(status = status)
 
     return Response(content_type='application/json', body = body)
 

@@ -13,6 +13,7 @@ SWITCH2 fa:16:3e:d9:48:74
 SWITCH2 fa:16:3e:7c:83:ac
 SWITCH4 fa:16:3e:eb:f0:a5
 SWITCH4 fa:16:3e:5e:c6:ef
+SWITCH4 fa:16:3e:57:f6:e8
 
 
 //Mapping multicast addresses to switches

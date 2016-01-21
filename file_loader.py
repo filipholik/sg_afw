@@ -165,6 +165,28 @@ class FileLoader():
       else:
         return 0
 
+  def createANewRule(self, data):
+    rule = Rule()
+    index = 0
+    for d in data:
+      if index == 0:
+        rule.src = d
+      if index == 1:
+        rule.dst = d
+      if index == 2:
+        rule.l2_proto = d
+      if index == 3:
+        rule.ruletype = int(d)
+        break
+      index += 1
+    return rule
+
+  def swapRuleSrcDst(self, rule):
+    src = rule.src
+    rule.src = rule.dst
+    rule.dst = src
+    return rule
+
 
 class Rule():
     src = 0
@@ -177,6 +199,7 @@ class Rule():
     tcp_destination = 0
     udp_source = 0
     udp_destination = 0
+    ruletype = 1 #1 = oneway, or 2 = twoway
 
 
 class Topology():
