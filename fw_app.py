@@ -1,6 +1,6 @@
-# Web application for Adaptive Firewall for Smart Grid Security (3.3.2)
+# Web application for Adaptive Firewall for Smart Grid Security (3.3.3)
 
-from flask import Flask
+from flask import Flask, url_for
 from flask import request
 import httplib #for Python 2.x
 import json
@@ -15,9 +15,10 @@ css_h2 = 'style="background-color:11557C; color:white; text-align:center; "'
 menu = """
 <h3 style="background-color:98AFC7; text-align:center;">
   <a href='/' style='color:black; '>Main page</a>
-  <a href='/rules' style='color:black; margin-left:10px'>Display active rules</a>
+  <a href='/rules' style='color:black; margin-left:10px'>Flow tables</a>
   <a href='/newrule' style='color:black; margin-left:10px'>Add a new rule</a>
-  <a href='/traffic' style='color:black; margin-left:10px'>Display denied traffic</a>
+  <a href='/traffic' style='color:black; margin-left:10px'>Traffic monitoring</a>
+  <a href='/vis' style='color:black; margin-left:10px'>Traffic visualization</a>
 </h3>
 
 """
@@ -34,7 +35,7 @@ def index():
 
 @app.route('/rules')
 def rules():
-  page = menu + '<h2 ' + css_h2 + '>Active rules </h2>'
+  page = menu + '<h2 ' + css_h2 + '>Flow tables </h2>'
   page += '<div style="text-align:center">'
   httpRequest = ""
   try:
@@ -71,7 +72,7 @@ def rules():
 
 @app.route('/traffic')
 def traffic():
-  page = menu + '<h2 ' + css_h2 + '>Denied traffic </h2>'
+  page = menu + '<h2 ' + css_h2 + '>Traffic monitoring </h2>'
   page += '<div style="text-align:center">'
 
   httpRequest = ""
@@ -79,7 +80,7 @@ def traffic():
 
   #---JSON Switch2---
   try:
-    conn.request("GET","/fw/traffic/2960111173765568",httpRequest)
+    conn.request("GET","/fw/traffic_denied/2960111173765568",httpRequest)
     response = conn.getresponse()
   except:
     return error()
@@ -92,7 +93,7 @@ def traffic():
   conn.close()
 
   #---JSON Switch4---
-  conn.request("GET","/fw/traffic/2991443865190400",httpRequest)
+  conn.request("GET","/fw/traffic_denied/2991443865190400",httpRequest)
   response = conn.getresponse()
   page += "<h3>Switch4</h3>"
   if response.status == 200:
@@ -120,7 +121,7 @@ def printTable(data):
   #print data
   col = -1
   num = 1
-  for d in data:
+  '''for d in data:
     sepparated = d.split()
     col += 1
     color = "white"
@@ -139,8 +140,29 @@ def printTable(data):
     elif col == 6:
       page += '<tr style="text-align:center; background-color: ' + color +'"><td colspan="5">' + d + "</td><tr/>"
       col = -1
-      num += 1
-    #print d
+      num += 1'''
+
+  for datadict in data:
+    color = "white"
+    if num % 2 == 0:
+      color = "#E0FFFF "
+    page += '<tr style="text-align:center; background-color: ' + color +'"><td rowspan="3">' + str(num) + "</td>"
+    page += "<td>" + str(datadict['table_id']) + "</td>"
+    page += "<td>" + str(datadict['priority']) + "</td>"
+    page += "<td>" + str(datadict['duration_sec']) + "</td>"
+    page += "<td>" + str(datadict['idle_timeout']) + "</td>"
+    page += "<td>" + str(datadict['packet_count']) + "</td></tr>"
+    page += "<tr style='text-align:center; background-color: " + color +"'><td colspan='5'>" + str(datadict['match']) + "</td></tr>"
+    page += "<tr style='text-align:center; background-color: " + color +"'><td colspan='5'>" + str(datadict['instructions']) + "</td></tr>"
+
+
+    if 'matchdict' in datadict:
+      flowdict = datadict['matchdict']
+      if 'eth_src' in flowdict:
+        #TODO - get data into a new page!!!
+        #page += "<tr style='text-align:center; background-color: " + color +"'><td colspan='5'>ETH SRC:" + str(flowdict['eth_src']) + "</td></tr>"
+    num+=1
+
   page += "</table>"
   return page
 
@@ -293,6 +315,40 @@ def sendNewRule(rule):
     return response.status
   except:
     return -1
+
+@app.route('/vis')
+def visualization():
+  page = menu + '<h2 ' + css_h2 + '>Traffic visualization </h2>'
+  #url_for('static', filename='js/libs/jquery-1.7.2.min.js')
+
+  page += '<div style="text-align:center">'
+  #page += menu
+  page += "<h3> Info </h3>"
+  page += """
+  <div id="main" role="main">
+      <div id="vis"></div>
+    </div>
+  """
+
+  page += """
+
+  <script>window.jQuery || document.write('<script src="""+ url_for('static', filename='js/libs/jquery-1.7.2.min.js') +"""><\/script>')</script>
+
+  <script defer src="""+ url_for('static', filename='js/plugins.js') +"""></script>
+  <script defer src="""+ url_for('static', filename='js/script.js') +"""></script>
+  <script src="""+ url_for('static', filename='js/libs/coffee-script.js') +"""></script>
+  <script src="""+ url_for('static', filename='js/libs/d3.v2.js') + """></script>
+  <script src="""+ url_for('static', filename='js/Tooltip.js') +"""></script>
+  <script type="""+ url_for('static', filename='text/coffeescript" src="coffee/vis.coffee') +"""></script>
+
+  <script src="""+ url_for('static', filename='js/libs/modernizr-2.0.6.min.js') +"""></script>
+
+  """
+
+
+
+  page += "</div>"
+  return page_header + page
 
 
 @app.route('/todo')

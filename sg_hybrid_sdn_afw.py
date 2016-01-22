@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adaptive Firewall for Smart Grid Security, 3.3.2
+# Adaptive Firewall for Smart Grid Security, 3.3.3
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -40,10 +40,13 @@ from ryu.lib import dpid as dpid_lib
 from switchpoll import *
 from threading import *
 
+import re
+
 
 sg_controller_instance_name = 'sg_controller_api_app'
-url = '/fw/rules/{dpid}'
-url2 = '/fw/traffic/{dpid}'
+url_rules = '/fw/rules/{dpid}'
+url_traffic_denied = '/fw/traffic_denied/{dpid}'
+url_traffic_allowed = '/fw/traffic_allowed/{dpid}'
 
 class SimpleSwitch13(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -315,7 +318,9 @@ class SimpleSwitch13(app_manager.RyuApp):
       deleted['eth_src'] = eth_src
       deleted['eth_dst'] = eth_dst
       deleted['eth_type'] = eth_type
-      allTraffic = self.trafficdict[dp.id]
+      allTraffic = []
+      if dp.id in self.trafficdict:
+        allTraffic = self.trafficdict[dp.id]
       for tr in allTraffic:
         self.logger.info('SRC: ' + tr['eth_src'] + " DST: " +tr['eth_dst'] + "Proto: " + str(tr['eth_type']))
 
@@ -350,8 +355,34 @@ class SimpleSwitch13(app_manager.RyuApp):
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
     def flow_stats_reply_handler(self, ev):
       self.logger.info('Flow_stats_reply received... ')
+      #self.flowtablesdict[datapath.id] = json.dumps(ev.msg.body)
+
       flows = []
+      flowdict = {}
+
       for stat in ev.msg.body:
+        flowdict = {}
+        flowdict['table_id'] = stat.table_id
+        flowdict['priority'] = stat.priority
+        flowdict['duration_sec'] = stat.duration_sec
+        flowdict['idle_timeout'] = stat.idle_timeout
+        flowdict['packet_count'] = stat.packet_count
+        flowdict['match'] = str(stat.match)
+        flowdict['instructions'] = str(stat.instructions)
+        matchdict = self.createMatchDict(str(stat.match))
+        flowdict['matchdict'] = matchdict
+
+        match = stat.match
+        #self.logger.info(match.OFPMatch)
+        ''' if type(match) == type(str()):
+          self.logger.info('string')
+        elif type(match) == type(list()):
+          self.logger.info('list')
+        else:
+          self.logger.info('else')'''
+
+
+        flows.append(flowdict)
         '''flows.append('table_id=%s '
                      'duration_sec=%d duration_nsec=%d '
                      'priority=%d '
@@ -364,18 +395,42 @@ class SimpleSwitch13(app_manager.RyuApp):
                       stat.idle_timeout, stat.hard_timeout, stat.flags,
                       stat.cookie, stat.packet_count, stat.byte_count,
                       stat.match, stat.instructions))'''
-        flows.append('table_id = %s'%(stat.table_id))
+        '''flows.append('table_id = %s'%(stat.table_id))
         flows.append('priority = %d'%(stat.priority))
         flows.append('duration_sec = %d'%(stat.duration_sec))
         flows.append('idle_timeout = %d'%(stat.idle_timeout))
         flows.append('packet_count = %d'%(stat.packet_count))
         flows.append('match = %s'%(stat.match))
-        flows.append('instructions = %s'%(stat.instructions))
+        flows.append('instructions = %s'%(stat.instructions))'''
 
       #self.logger.info('FlowStats: %s', flows)
       datapath = ev.msg.datapath
       self.flowtablesdict[datapath.id] = flows
 
+    def createMatchDict(self, matchstring):
+      #sepparated = matchstring.split(" ")
+      single = matchstring.replace("'","")
+      #single = single.replace("'","")
+      single = re.split('{|, | ',matchstring)
+      self.logger.info('---')
+      matchdict = {}
+      previous = ""
+      for w in single:
+        w = w.replace("'","")
+        w = w.replace("}","")
+        w = w.replace(")","")
+        self.logger.info('match: %s', w)
+        if previous == "eth_dst:":
+          matchdict['eth_dst'] = w
+        if previous == "eth_src:":
+          matchdict['eth_src'] = w
+        if previous == "eth_type:":
+          matchdict['eth_type'] = w
+
+        previous = w
+
+      self.logger.info('---')
+      return matchdict
 
     def getFlows(self, dpid):
       if int(dpid) not in self.flowtablesdict:
@@ -383,7 +438,7 @@ class SimpleSwitch13(app_manager.RyuApp):
       else:
         return self.flowtablesdict[int(dpid)]
 
-    def getTraffic(self, dpid):
+    def getDeniedTraffic(self, dpid):
       if int(dpid) not in self.trafficdict:
         return "Datapath ID entry not found... "
       else:
@@ -396,6 +451,9 @@ class SimpleSwitch13(app_manager.RyuApp):
 
         #self.logger.info('SRC: ' + tr['eth_src'] + " DST: " +tr['eth_dst'])
         return trlist
+
+    def getAllowedTraffic(self, dpid):
+      return "allowed"
 
     def setNewFWRule(self, data):
       self.logger.info('New FW rule received... ' )
@@ -442,27 +500,32 @@ class SGController(ControllerBase):
     self.sg_app = data[sg_controller_instance_name]
     self.sg_switch = self.sg_app
 
-  @route('fw', url, methods = ['GET'], requirements = {'dpid': dpid_lib.DPID_PATTERN})
+  @route('fw', url_rules, methods = ['GET'], requirements = {'dpid': dpid_lib.DPID_PATTERN})
   def list_fw_rules(self, req, **kwargs):
     #sg_switch = self.sg_app
     dpid = dpid_lib.str_to_dpid(kwargs['dpid'])
 
-    rules_table = self.sg_switch.getFlows(kwargs['dpid'])
+    flows = self.sg_switch.getFlows(kwargs['dpid'])
 
-    if rules_table == 0:
+    if flows == 0:
       return Response(status = 404)
 
-    body = json.dumps(rules_table)
+    body = json.dumps(flows)
     return Response(content_type ='application/json', body = body )
 
-  @route('fw', url2, methods = ['GET'], requirements = {'dpid': dpid_lib.DPID_PATTERN})
-  def list_fw_traffic(self, req, **kwargs):
-    #sg_switch = self.sg_app
+  @route('fw', url_traffic_denied, methods = ['GET'], requirements = {'dpid': dpid_lib.DPID_PATTERN})
+  def list_fw_traffic_allowed(self, req, **kwargs):
+    traffic = self.sg_switch.getDeniedTraffic(kwargs['dpid'])
+    body = json.dumps(traffic)
+    return Response(content_type='application/json', body = body)
+
+  @route('fw', url_traffic_allowed, methods = ['GET'], requirements = {'dpid': dpid_lib.DPID_PATTERN})
+  def list_fw_traffic_denied(self, req, **kwargs):
     traffic = self.sg_switch.getTraffic(kwargs['dpid'])
     body = json.dumps(traffic)
     return Response(content_type='application/json', body = body)
 
-  @route('fw', url, methods = ['POST'], requirements = {'dpid': dpid_lib.DPID_PATTERN})
+  @route('fw', url_rules, methods = ['POST'], requirements = {'dpid': dpid_lib.DPID_PATTERN})
   def insert_fw_rule(self, req, **kwargs):
     rule = json.loads(req.body)
     status = self.sg_switch.setNewFWRule(rule)
