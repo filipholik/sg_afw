@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adaptive Firewall for Smart Grid Security, 3.3.5
+# Adaptive Firewall for Smart Grid Security, 3.3.6
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -100,7 +100,10 @@ class SimpleSwitch13(app_manager.RyuApp):
         #BDDP frames
         self.add_flow(datapath, 10, 180, 100, parser.OFPMatch(eth_type=0x8999), actions)
 
-        #ARP frames
+        #ARP frames - send in normal
+        self.add_flow(datapath, 10, 180, 100, parser.OFPMatch(eth_type=2054), action_normal)
+        '''
+        #ARP frames - copy action
         #self.add_flow(datapath, 1, 180, 100, parser.OFPMatch(eth_type=2054), action_normal)
         # first instruction to table 200 must be set
         instruction_200 = [parser.OFPInstructionGotoTable(200)]
@@ -110,7 +113,7 @@ class SimpleSwitch13(app_manager.RyuApp):
                                 priority = 2, match=parser.OFPMatch(eth_type=2054), instructions=instruction_200)
         datapath.send_msg(mod)
         # rule itself must be inserted in table 200 (supports copying of packets)
-        self.add_flow(datapath, 2, 180, 200, parser.OFPMatch(eth_type=2054), action_copy)
+        self.add_flow(datapath, 2, 180, 200, parser.OFPMatch(eth_type=2054), action_copy)'''
 
         #Deny everything else - send it to the controller
         self.add_flow(datapath, 1, 180, 100, match, actions)
@@ -455,7 +458,7 @@ class SimpleSwitch13(app_manager.RyuApp):
       allowedTraffic = []
       allowedMatchDict = {}
       if int(dpid) not in self.flowtablesdict:
-        return "Datapath ID entry not found... "
+        return 0
       else:
         flows = self.flowtablesdict[int(dpid)]
         for flow in flows:
@@ -483,21 +486,23 @@ class SimpleSwitch13(app_manager.RyuApp):
         if match == 0:
           continue
         else:
-          self.applyNewFWRule(datapath, match)
+          self.applyNewFWRule(datapath, match, int(rule.rulepriority))
           if rule.ruletype == 2:
             rule = self.fileLoader.swapRuleSrcDst(rule)
             match = self.fileLoader.createMatch(rule, datapath.ofproto_parser, dpid)
             if match == 0:
               continue
-            self.applyNewFWRule(datapath, match)
+            self.applyNewFWRule(datapath, match, int(rule.rulepriority))
+          else:
+            self.logger.info('One way rule only! ')
 
       #self.logger.info('Data2: ' +str(data['data']) )
       return 200
 
-    def applyNewFWRule(self, datapath, match):
+    def applyNewFWRule(self, datapath, match, priority):
       parser = datapath.ofproto_parser
       ofproto = datapath.ofproto
-      self.add_flow(datapath, 5, 120, 100, match,
+      self.add_flow(datapath, priority, 120, 100, match,
                     [parser.OFPActionOutput(ofproto.OFPP_NORMAL)])
       self.logger.info('New FW rule applied... ' )
 

@@ -1,4 +1,4 @@
-#For versions  3.2.1+
+#For versions  3.3.6+
 import os
 from ryu.ofproto import ofproto_v1_3
 
@@ -167,6 +167,18 @@ class FileLoader():
 
   def createANewRule(self, data):
     rule = Rule()
+    if 'eth_src' in data:
+      rule.src = data['eth_src']
+    if 'eth_dst' in data:
+      rule.dst = data['eth_dst']
+    if 'eth_type' in data:
+      rule.l2_proto = data['eth_type']
+    if 'ruletype' in data:
+      rule.ruletype = int(data['ruletype'])
+    if 'priority' in data:
+      rule.rulepriority = int(data['priority'])
+
+    '''
     index = 0
     for d in data:
       if index == 0:
@@ -178,7 +190,7 @@ class FileLoader():
       if index == 3:
         rule.ruletype = int(d)
         break
-      index += 1
+      index += 1'''
     return rule
 
   def swapRuleSrcDst(self, rule):
@@ -200,6 +212,7 @@ class Rule():
     udp_source = 0
     udp_destination = 0
     ruletype = 1 #1 = oneway, or 2 = twoway
+    rulepriority = 0
 
 
 class Topology():

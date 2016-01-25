@@ -1,4 +1,4 @@
-# Web application for Adaptive Firewall for Smart Grid Security (3.3.5)
+# Web application for Adaptive Firewall for Smart Grid Security (3.3.6)
 
 from flask import Flask, url_for
 from flask import request
@@ -13,6 +13,7 @@ switchdpidsdict = {'Switch 1': '2960111173765568',
 urlRules = "/fw/rules/"
 urlTrafficAllowed = "/fw/traffic_allowed/"
 urlTrafficDenied = "/fw/traffic_denied/"
+urlNewRule = "/fw/rules/"
 
 app = Flask(__name__)
 page_header = '<h1 style="text-align:center;">SG Firewall application</h1>\n'
@@ -28,7 +29,8 @@ menu = """
 
 """
 
-def getDataFromConnection(url):
+#For reading data
+def getDataFromConnectionGET(url):
   try:
     httpRequest = ""
     conn = httplib.HTTPConnection("127.0.0.1",8080)
@@ -44,6 +46,17 @@ def getDataFromConnection(url):
   except:
     return -1
 
+#For inserting new rules
+def getResponseStatusPOST(url, data):
+  try:
+    #httpRequest = ""
+    conn = httplib.HTTPConnection("127.0.0.1",8080)
+    conn.request("POST",url,data)
+    response = conn.getresponse()
+    return response.status
+    #conn.close()
+  except:
+    return -1
 
 @app.route('/')
 def index():
@@ -62,7 +75,7 @@ def rules():
   #httpRequest = ""
 
   for switchname, dpid in switchdpidsdict.iteritems():
-    data = getDataFromConnection(urlRules+dpid)
+    data = getDataFromConnectionGET(urlRules+dpid)
     page += "<h3>" + switchname + "</h3>"
     if data == -1:
       page += "Cannot connect to the device or get data from the device... "
@@ -82,7 +95,7 @@ def trafficAllowed():
   page += "<h3 " + css_h2 + "> Allowed traffic </h3>"
 
   for switchname, dpid in switchdpidsdict.iteritems():
-    data = getDataFromConnection(urlTrafficAllowed+dpid)
+    data = getDataFromConnectionGET(urlTrafficAllowed+dpid)
     page += "<h3>" + switchname + "</h3>"
     if data == -1:
       page += "Cannot connect to the device or get data from the device... "
@@ -103,7 +116,7 @@ def trafficDenied():
 
 
   for switchname, dpid in switchdpidsdict.iteritems():
-    data = getDataFromConnection(urlTrafficDenied+dpid)
+    data = getDataFromConnectionGET(urlTrafficDenied+dpid)
     page += "<h3>" + switchname + "</h3>"
     if data == -1:
       page += "Cannot connect to the device or get data from the device... "
@@ -181,29 +194,34 @@ def printTrafficTable(data, action):
     if num % 2 == 0:
       color = "#E0FFFF"
     page += '<tr style="text-align:center; background-color: ' + color +'"><td>' + str(num) + '</td>'
+    action_link = "?"
     if 'eth_src' in rule:
       page += "<td>" + rule['eth_src'] + "</td>"
+      action_link += "src=" + rule['eth_src'] + "&"
     else:
       page += "<td>Any source</td>"
     if 'eth_dst' in rule:
       page += "<td>" + rule['eth_dst'] + "</td>"
+      action_link += "dst=" + rule['eth_dst'] + "&"
     else:
       page += "<td>Any destination</td>"
     if 'eth_type' in rule:
       page += "<td>" + decodeEthProto(rule['eth_type']) + ": " + str(rule['eth_type']) + "</td>"
+      action_link += "type=" + str(rule['eth_type']) + "&"
     else:
       page += "<td>Any protocol</td>"
     if 'priority' in rule:
       page += "<td>" + str(rule['priority']) + "</td>"
+      action_link += "prio=" + str(11)
     else:
       page += "<td>?</td>"
-    page += "<td><a href='/todo'style='color:black;'>"+ action +"</a>  </td></tr>"
+    page += "<td><a href='/newrule"+action_link+"'style='color:black;'>"+ action +"</a>  </td></tr>"
     num += 1
 
   page += "</table>"
   return page
 
-
+'''
 def printDeniedTraffic(data):
   page = """<table border="1" style="width:80%; margin-left:10%">\n
   <tr> <th>Number </th> <th> Source </th> <th> Destination </th>
@@ -240,8 +258,11 @@ def printDeniedTraffic(data):
   page += "</table>"
 
   return page
+'''
 
 def decodeEthProto(eth_proto):
+  #return "?"
+  #eth_proto = int(eth_proto, 16)
   if int(eth_proto) == 2048:
     return "IPv4"
   if int(eth_proto) == 2054:
@@ -258,6 +279,11 @@ def newRule():
   page += "<h3> Insert a new FW rule into the network </h3>"
   page += "<p>Field marked with * are required.  </p>"
 
+  src = request.args.get('src', 'fa:16:3e:30:cc:04')
+  dst = request.args.get('dst', 'fa:16:3e:5e:c6:ef')
+  proto = request.args.get('type', '2048')
+  prio = request.args.get('prio', '11')
+
   page += """
   <form action="/sendRule" method="post" accept-charset="UTF-8"
   enctype="application/json" autocomplete="off" novalidate
@@ -265,18 +291,18 @@ def newRule():
   <fieldset>
     <legend>Rule:</legend>
     Source MAC:
-    <input type="text" name="src" value="fa:16:3e:30:cc:04"><br>
+    <input type="text" name="src" value=""" + src + """><br>
     Destination MAC:
-    <input type="text" name="dst" value="fa:16:3e:5e:c6:ef"><br>
-    Ethernet protocol:
-    <select name="proto">
-      <option value="0x0800">IP</option>
-      <option value="0">Anything</option>
-    </select>
+    <input type="text" name="dst" value=""" + dst + """><br>
+    Ethernet type:
+    <input type="text" name="proto" value="""+ proto +"""><br>
+    Priority:
+    <input type="text" name="prio" value="""+ prio +"""><br>
+
     <br>
     Rule type:
     <select name="type">
-      <option value="2">Two-ways</option>
+      <option value="2" selected>Two-ways</option>
       <option value="1">One-way</option>
     </select>
     <br>
@@ -296,16 +322,24 @@ def processRuleRequest():
   '''if request.method == 'POST': '''
   src = request.form['src']
   dst = request.form['dst']
-  proto = request.form['proto']
+  proto = int(request.form['proto'])
+  prio = request.form['prio']
   ruletype = request.form['type']
+  #print hex(proto)
 
   #data = {}
-  rule = []
-  rule.append(src)
+  rule = {}
+  rule['eth_src'] = src
+  rule['eth_dst'] = dst
+  rule['eth_type'] = hex(proto)
+  rule['priority'] = prio
+  rule['ruletype'] = ruletype
+
+  '''rule.append(src)
   rule.append(dst)
   rule.append(proto)
-  rule.append(ruletype)
-  #data['rule'] = rule
+  rule.append(ruletype)'''
+
   jsonrule = json.dumps(rule)
   responsestatus = sendNewRule(jsonrule)
   if responsestatus == -1:
@@ -322,20 +356,30 @@ def processRuleRequest():
     #page += menu
     page += "<h3> Rule was not applied. Response status: "+ str(responsestatus) +" </h3>"
 
-  page += "<a href='/'style='color:black;'>Main page</a> "
+  page += "<a href='/trafficAllowed'style='color:black;'>Allowed traffic</a> "
   page += "</div>"
   return page_header + page
 
 
 def sendNewRule(rule):
-  httpRequest = rule
+  status = 0
+  for switchname, dpid in switchdpidsdict.iteritems():
+    responseStatus = getResponseStatusPOST(urlRules+dpid, rule)
+    if responseStatus == -1:
+      return -1
+    status = responseStatus
+
+  return status
+
+  '''httpRequest = rule
+
   try:
     conn = httplib.HTTPConnection("127.0.0.1",8080)
     conn.request("POST","/fw/rules/2960111173765568",httpRequest)
     response = conn.getresponse()
     return response.status
   except:
-    return -1
+    return -1'''
 
 @app.route('/vis')
 def visualization():
