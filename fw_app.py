@@ -1,4 +1,4 @@
-# Web application for Adaptive Firewall for Smart Grid Security (3.3.4)
+# Web application for Adaptive Firewall for Smart Grid Security (3.3.5)
 
 from flask import Flask, url_for
 from flask import request
@@ -8,6 +8,11 @@ from pprint import pprint
 
 from flask import make_response
 
+switchdpidsdict = {'Switch 1': '2960111173765568',
+                   'Switch 2': '2991443865190400'}
+urlRules = "/fw/rules/"
+urlTrafficAllowed = "/fw/traffic_allowed/"
+urlTrafficDenied = "/fw/traffic_denied/"
 
 app = Flask(__name__)
 page_header = '<h1 style="text-align:center;">SG Firewall application</h1>\n'
@@ -17,12 +22,28 @@ menu = """
   <a href='/' style='color:black; '>Main page</a>
   <a href='/rules' style='color:black; margin-left:10px'>Flow tables</a>
   <a href='/newrule' style='color:black; margin-left:10px'>Add a new rule</a>
-  <a href='/trafficAllowed' style='color:black; margin-left:10px'>Allowed traffic</a>
-  <a href='/trafficDenied' style='color:black; margin-left:10px'>Denied traffic</a>
+  <a href='/trafficAllowed' style='color:black; margin-left:10px'>Traffic monitoring</a>
   <a href='/vis' style='color:black; margin-left:10px'>Traffic visualization</a>
 </h3>
 
 """
+
+def getDataFromConnection(url):
+  try:
+    httpRequest = ""
+    conn = httplib.HTTPConnection("127.0.0.1",8080)
+    conn.request("GET",url,httpRequest)
+    response = conn.getresponse()
+    if response.status == 200:
+      data = json.load(response)
+      conn.close()
+      return data
+    else:
+      conn.close()
+      return -1
+  except:
+    return -1
+
 
 @app.route('/')
 def index():
@@ -38,107 +59,56 @@ def index():
 def rules():
   page = menu + '<h2 ' + css_h2 + '>Flow tables </h2>'
   page += '<div style="text-align:center">'
-  httpRequest = ""
-  try:
-    conn = httplib.HTTPConnection("127.0.0.1",8080)
-  #---JSON Switch2---
-    conn.request("GET","/fw/rules/2960111173765568",httpRequest)
-    response = conn.getresponse()
-  except:
-    return error()
-  page += "<h3>Switch2</h3> \n"
-  if response.status == 200:
-    data = json.load(response)
-    page += printTable(data)
-  else:
-    page += "<p><b>Cannot connect to the switch... </b></p>"
-  conn.close()
+  #httpRequest = ""
 
-  #---JSON Switch4---
-  try:
-    conn.request("GET","/fw/rules/2991443865190400",httpRequest)
-    response = conn.getresponse()
-  except:
-    return error()
-  page += "<h3>Switch4</h3>"
-  if response.status == 200:
-    data = json.load(response)
-    page += printTable(data)
-  else:
-    page += "<p><b>Cannot connect to the switch... </b></p>"
-  conn.close()
+  for switchname, dpid in switchdpidsdict.iteritems():
+    data = getDataFromConnection(urlRules+dpid)
+    page += "<h3>" + switchname + "</h3>"
+    if data == -1:
+      page += "Cannot connect to the device or get data from the device... "
+    else:
+      page += printTable(data)
 
   page += "</div>"
   return page_header + page
 
 @app.route('/trafficAllowed')
 def trafficAllowed():
-  page = menu + '<h2 ' + css_h2 + '>Allowed traffic  </h2>'
+  page = menu + "<h2 "  + css_h2 + """
+  ><a href='/trafficAllowed' style='color:white;'>Allowed traffic</a>
+  <a href='/trafficDenied' style='color:white; margin-left:20px'>Denied traffic</a>
+  </h2> """
   page += '<div style="text-align:center">'
+  page += "<h3 " + css_h2 + "> Allowed traffic </h3>"
 
-  httpRequest = ""
-  conn = httplib.HTTPConnection("127.0.0.1",8080)
-
-  #---JSON Switch2---
-  try:
-    conn.request("GET","/fw/traffic_allowed/2960111173765568",httpRequest)
-    response = conn.getresponse()
-  except:
-    return error()
-  page += "<h3>Switch2</h3>"
-  if response.status == 200:
-    data = json.load(response)
-    page += printAllowedTraffic(data)
-  else:
-    page += "<p><b>Cannot connect to the switch... </b></p>"
-  conn.close()
-
-  #---JSON Switch4---
-  conn.request("GET","/fw/traffic_allowed/2991443865190400",httpRequest)
-  response = conn.getresponse()
-  page += "<h3>Switch4</h3>"
-  if response.status == 200:
-    data = json.load(response)
-    page += printAllowedTraffic(data)
-  else:
-    page += "<p><b>Cannot connect to the switch... </b></p>"
-  conn.close()
+  for switchname, dpid in switchdpidsdict.iteritems():
+    data = getDataFromConnection(urlTrafficAllowed+dpid)
+    page += "<h3>" + switchname + "</h3>"
+    if data == -1:
+      page += "Cannot connect to the device or get data from the device... "
+    else:
+      page += printTrafficTable(data, "DENY")
 
   page += "</div>"
   return page_header + page
 
 @app.route('/trafficDenied')
 def trafficDenied():
-  page = menu + '<h2 ' + css_h2 + '>Denied traffic  </h2>'
+  page = menu + "<h2 "  + css_h2 + """
+  ><a href='/trafficAllowed' style='color:white;'>Allowed traffic</a>
+  <a href='/trafficDenied' style='color:white; margin-left:20px'>Denied traffic</a>
+  </h2> """
   page += '<div style="text-align:center">'
+  page += "<h3 " + css_h2 + "> Denied traffic </h3>"
 
-  httpRequest = ""
-  conn = httplib.HTTPConnection("127.0.0.1",8080)
 
-  #---JSON Switch2---
-  try:
-    conn.request("GET","/fw/traffic_denied/2960111173765568",httpRequest)
-    response = conn.getresponse()
-  except:
-    return error()
-  page += "<h3>Switch2</h3>"
-  if response.status == 200:
-    data = json.load(response)
-    page += printTraffic(data)
-  else:
-    page += "<p><b>Cannot connect to the switch... </b></p>"
-  conn.close()
-
-  #---JSON Switch4---
-  conn.request("GET","/fw/traffic_denied/2991443865190400",httpRequest)
-  response = conn.getresponse()
-  page += "<h3>Switch4</h3>"
-  if response.status == 200:
-    data = json.load(response)
-    page += printTraffic(data)
-  else:
-    page += "<p><b>Cannot connect to the switch... </b></p>"
-  conn.close()
+  for switchname, dpid in switchdpidsdict.iteritems():
+    data = getDataFromConnection(urlTrafficDenied+dpid)
+    page += "<h3>" + switchname + "</h3>"
+    if data == -1:
+      page += "Cannot connect to the device or get data from the device... "
+    else:
+      page += printTrafficTable(data, "ALLOW")
 
   page += "</div>"
   return page_header + page
@@ -158,26 +128,6 @@ def printTable(data):
   #print data
   col = -1
   num = 1
-  '''for d in data:
-    sepparated = d.split()
-    col += 1
-    color = "white"
-    if num % 2 == 0:
-      color = "#E0FFFF "
-
-    if col == 0:
-      page += '<tr style="text-align:center; background-color: ' + color +'"><td rowspan="5">' + str(num) + "</td>"
-      page += "<td>" + sepparated[2] + "</td>"
-    elif col == 1 or col == 2 or col == 3:
-      page += "<td>" + sepparated[2] + "</td>"
-    elif col == 4:
-      page += "<td>" + sepparated[2] + "</td><tr/>"
-    elif col == 5:
-      page += '<tr style="text-align:center; background-color: ' + color +'"><td colspan="5">' + d + "</td><tr/>"
-    elif col == 6:
-      page += '<tr style="text-align:center; background-color: ' + color +'"><td colspan="5">' + d + "</td><tr/>"
-      col = -1
-      num += 1'''
 
   for datadict in data:
     color = "white"
@@ -190,8 +140,6 @@ def printTable(data):
     page += "<td>" + str(datadict['idle_timeout']) + "</td>"
     page += "<td>" + str(datadict['packet_count']) + "</td></tr>"
     page += "<tr style='text-align:center; background-color: " + color +"'><td colspan='5'>" + str(datadict['match']) + "</td></tr>"
-
-
 
     if 'matchdict' in datadict:
       flowdict = datadict['matchdict']
@@ -214,10 +162,17 @@ def printTable(data):
   page += "</table>"
   return page
 
-def printAllowedTraffic(data):
+def printTrafficTable(data, action):
+  #TODO action
+
+  #if isinstance(data, (list)):
+  if data == 0:
+    return "Datapath ID entry not found... "
+
+
   page = """<table border="1" style="width:80%; margin-left:10%">\n
   <tr> <th>Number </th> <th> Source </th> <th> Destination </th>
-  <th> Eth Proto </th> <th> Action </th>  </tr> \n"""
+  <th> Eth Proto </th><th> Priority</th> <th> Action </th>  </tr> \n"""
   if len(data) == 0:
     page += "<tr> <td colspan='5' style='text-align:center; '>No allowed traffic</td></tr>"
   num = 1
@@ -235,17 +190,21 @@ def printAllowedTraffic(data):
     else:
       page += "<td>Any destination</td>"
     if 'eth_type' in rule:
-      page += "<td>" + decodeEthProto(rule['eth_type']) + ": " + rule['eth_type'] + "</td>"
+      page += "<td>" + decodeEthProto(rule['eth_type']) + ": " + str(rule['eth_type']) + "</td>"
     else:
       page += "<td>Any protocol</td>"
-    page += "<td><a href='/todo'style='color:black;'>DENY</a>  </td></tr>"
+    if 'priority' in rule:
+      page += "<td>" + str(rule['priority']) + "</td>"
+    else:
+      page += "<td>?</td>"
+    page += "<td><a href='/todo'style='color:black;'>"+ action +"</a>  </td></tr>"
     num += 1
 
   page += "</table>"
   return page
 
 
-def printTraffic(data):
+def printDeniedTraffic(data):
   page = """<table border="1" style="width:80%; margin-left:10%">\n
   <tr> <th>Number </th> <th> Source </th> <th> Destination </th>
   <th> Eth Proto </th> <th> Action </th>  </tr>
@@ -260,25 +219,6 @@ def printTraffic(data):
     page += "<tr> <td colspan='5' style='text-align:center; '>No denied traffic</td></tr>"
 
   num = 1
-  '''for d in data:
-    index = 0
-    color = "white"
-    if num % 2 == 0:
-      color = "#E0FFFF "
-    for i in d:
-      if index == 0:
-        page += '<tr style="text-align:center; background-color: ' + color +'"><td>' + str(num) + '</td>'
-        num += 1
-      sepparated = i.split()
-      if index == 2:
-        proto = decodeEthProto(sepparated[2]) + " (" +sepparated[2] + ") "
-        page += "<td>" + proto + "</td>"
-      else:
-        page += "<td>" + sepparated[2] + "</td>"
-      index += 1
-      if index == 3:
-        page += "<td><a href='/todo'style='color:black;'>ALLOW</a>  </td></tr>"
-        index = 0'''
   index = 0
   for d in data:
     color = "white"

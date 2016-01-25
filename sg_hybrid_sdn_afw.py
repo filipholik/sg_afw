@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adaptive Firewall for Smart Grid Security, 3.3.4
+# Adaptive Firewall for Smart Grid Security, 3.3.5
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -274,14 +274,10 @@ class SimpleSwitch13(app_manager.RyuApp):
 
       capturedTraffic = {}
       #message = eth.src + " -> " + eth.dst + ", proto: " + str(eth.ethertype)
-      '''message = []
-      message.append('eth_src = %s'%(eth.src))
-      message.append('eth_dst = %s'%(eth.dst))
-      message.append('l2_proto = %d'%(eth_type))'''
-
       capturedTraffic['eth_src'] = eth.src
       capturedTraffic['eth_dst'] = eth.dst
       capturedTraffic['eth_type'] = eth_type
+      capturedTraffic['priority'] = 3
 
       allTraffic = []
       if datapath.id in self.trafficdict:
@@ -434,14 +430,17 @@ class SimpleSwitch13(app_manager.RyuApp):
 
     def getFlows(self, dpid):
       if int(dpid) not in self.flowtablesdict:
+        self.logger.info('DPID not found... ' )
         return "Datapath ID entry not found... "
       else:
         return self.flowtablesdict[int(dpid)]
 
     def getDeniedTraffic(self, dpid):
       if int(dpid) not in self.trafficdict:
-        return "Datapath ID entry not found... "
+        return 0
       else:
+        return self.trafficdict[int(dpid)]
+        '''
         allTraffic = self.trafficdict[int(dpid)]
         trlist = []
         for tr in allTraffic:
@@ -450,7 +449,7 @@ class SimpleSwitch13(app_manager.RyuApp):
           trlist.append(tr['eth_type'])
 
         #self.logger.info('SRC: ' + tr['eth_src'] + " DST: " +tr['eth_dst'])
-        return trlist
+        return trlist'''
 
     def getAllowedTraffic(self, dpid):
       allowedTraffic = []
@@ -461,8 +460,11 @@ class SimpleSwitch13(app_manager.RyuApp):
         flows = self.flowtablesdict[int(dpid)]
         for flow in flows:
           if 'match' in flow:
-            self.logger.info('Matching allowed traffic found... ' )
-            allowedTraffic.append(flow['matchdict'])
+            newMatch = flow['matchdict']
+            if flow['priority'] == 3:
+              continue
+            newMatch['priority'] = flow['priority']
+            allowedTraffic.append(newMatch)
             '''match = flows['match']
             if 'eth_src' in match:
               allowedMatchDict['eth_src'] = match['eth_src']'''
