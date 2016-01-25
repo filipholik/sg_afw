@@ -1,4 +1,4 @@
-# Web application for Adaptive Firewall for Smart Grid Security (3.3.3)
+# Web application for Adaptive Firewall for Smart Grid Security (3.3.4)
 
 from flask import Flask, url_for
 from flask import request
@@ -17,7 +17,8 @@ menu = """
   <a href='/' style='color:black; '>Main page</a>
   <a href='/rules' style='color:black; margin-left:10px'>Flow tables</a>
   <a href='/newrule' style='color:black; margin-left:10px'>Add a new rule</a>
-  <a href='/traffic' style='color:black; margin-left:10px'>Traffic monitoring</a>
+  <a href='/trafficAllowed' style='color:black; margin-left:10px'>Allowed traffic</a>
+  <a href='/trafficDenied' style='color:black; margin-left:10px'>Denied traffic</a>
   <a href='/vis' style='color:black; margin-left:10px'>Traffic visualization</a>
 </h3>
 
@@ -70,9 +71,45 @@ def rules():
   page += "</div>"
   return page_header + page
 
-@app.route('/traffic')
-def traffic():
-  page = menu + '<h2 ' + css_h2 + '>Traffic monitoring </h2>'
+@app.route('/trafficAllowed')
+def trafficAllowed():
+  page = menu + '<h2 ' + css_h2 + '>Allowed traffic  </h2>'
+  page += '<div style="text-align:center">'
+
+  httpRequest = ""
+  conn = httplib.HTTPConnection("127.0.0.1",8080)
+
+  #---JSON Switch2---
+  try:
+    conn.request("GET","/fw/traffic_allowed/2960111173765568",httpRequest)
+    response = conn.getresponse()
+  except:
+    return error()
+  page += "<h3>Switch2</h3>"
+  if response.status == 200:
+    data = json.load(response)
+    page += printAllowedTraffic(data)
+  else:
+    page += "<p><b>Cannot connect to the switch... </b></p>"
+  conn.close()
+
+  #---JSON Switch4---
+  conn.request("GET","/fw/traffic_allowed/2991443865190400",httpRequest)
+  response = conn.getresponse()
+  page += "<h3>Switch4</h3>"
+  if response.status == 200:
+    data = json.load(response)
+    page += printAllowedTraffic(data)
+  else:
+    page += "<p><b>Cannot connect to the switch... </b></p>"
+  conn.close()
+
+  page += "</div>"
+  return page_header + page
+
+@app.route('/trafficDenied')
+def trafficDenied():
+  page = menu + '<h2 ' + css_h2 + '>Denied traffic  </h2>'
   page += '<div style="text-align:center">'
 
   httpRequest = ""
@@ -146,25 +183,67 @@ def printTable(data):
     color = "white"
     if num % 2 == 0:
       color = "#E0FFFF "
-    page += '<tr style="text-align:center; background-color: ' + color +'"><td rowspan="3">' + str(num) + "</td>"
+    page += '<tr style="text-align:center; background-color: ' + color +'"><td rowspan="4">' + str(num) + "</td>"
     page += "<td>" + str(datadict['table_id']) + "</td>"
     page += "<td>" + str(datadict['priority']) + "</td>"
     page += "<td>" + str(datadict['duration_sec']) + "</td>"
     page += "<td>" + str(datadict['idle_timeout']) + "</td>"
     page += "<td>" + str(datadict['packet_count']) + "</td></tr>"
     page += "<tr style='text-align:center; background-color: " + color +"'><td colspan='5'>" + str(datadict['match']) + "</td></tr>"
-    page += "<tr style='text-align:center; background-color: " + color +"'><td colspan='5'>" + str(datadict['instructions']) + "</td></tr>"
+
 
 
     if 'matchdict' in datadict:
       flowdict = datadict['matchdict']
+      matchstring = "Match: "
       if 'eth_src' in flowdict:
-        #TODO - get data into a new page!!!
-        #page += "<tr style='text-align:center; background-color: " + color +"'><td colspan='5'>ETH SRC:" + str(flowdict['eth_src']) + "</td></tr>"
+        matchstring += "src: " + str(flowdict['eth_src']) + " "
+      if 'eth_dst' in flowdict:
+        matchstring += "dst: " + str(flowdict['eth_dst']) + " "
+      if 'eth_type' in flowdict:
+        matchstring += "eth: " + str(flowdict['eth_type']) + " "
+      if matchstring == "Match: ":
+        matchstring = "Match everything"
+      page += "<tr style='text-align:center; background-color: " + color +"'><td colspan='5'>" + matchstring + "</td></tr>"
+    else:
+      page += "<tr style='text-align:center; background-color: " + color +"'><td colspan='5'>Match not included in JSON. </td></tr>"
+
+    page += "<tr style='text-align:center; background-color: " + color +"'><td colspan='5'>" + str(datadict['instructions']) + "</td></tr>"
     num+=1
 
   page += "</table>"
   return page
+
+def printAllowedTraffic(data):
+  page = """<table border="1" style="width:80%; margin-left:10%">\n
+  <tr> <th>Number </th> <th> Source </th> <th> Destination </th>
+  <th> Eth Proto </th> <th> Action </th>  </tr> \n"""
+  if len(data) == 0:
+    page += "<tr> <td colspan='5' style='text-align:center; '>No allowed traffic</td></tr>"
+  num = 1
+  for rule in data:
+    color = "white"
+    if num % 2 == 0:
+      color = "#E0FFFF"
+    page += '<tr style="text-align:center; background-color: ' + color +'"><td>' + str(num) + '</td>'
+    if 'eth_src' in rule:
+      page += "<td>" + rule['eth_src'] + "</td>"
+    else:
+      page += "<td>Any source</td>"
+    if 'eth_dst' in rule:
+      page += "<td>" + rule['eth_dst'] + "</td>"
+    else:
+      page += "<td>Any destination</td>"
+    if 'eth_type' in rule:
+      page += "<td>" + decodeEthProto(rule['eth_type']) + ": " + rule['eth_type'] + "</td>"
+    else:
+      page += "<td>Any protocol</td>"
+    page += "<td><a href='/todo'style='color:black;'>DENY</a>  </td></tr>"
+    num += 1
+
+  page += "</table>"
+  return page
+
 
 def printTraffic(data):
   page = """<table border="1" style="width:80%; margin-left:10%">\n
@@ -227,7 +306,9 @@ def decodeEthProto(eth_proto):
     return "IPv4"
   if int(eth_proto) == 2054:
     return "ARP"
-  return "uknown"
+  if int(eth_proto) == 35020:
+    return "LLDP"
+  return "unknown"
 
 @app.route('/newrule')
 def newRule():

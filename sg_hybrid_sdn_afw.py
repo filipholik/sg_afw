@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adaptive Firewall for Smart Grid Security, 3.3.3
+# Adaptive Firewall for Smart Grid Security, 3.3.4
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -412,14 +412,14 @@ class SimpleSwitch13(app_manager.RyuApp):
       single = matchstring.replace("'","")
       #single = single.replace("'","")
       single = re.split('{|, | ',matchstring)
-      self.logger.info('---')
+      #self.logger.info('---')
       matchdict = {}
       previous = ""
       for w in single:
         w = w.replace("'","")
         w = w.replace("}","")
         w = w.replace(")","")
-        self.logger.info('match: %s', w)
+        #self.logger.info('match: %s', w)
         if previous == "eth_dst:":
           matchdict['eth_dst'] = w
         if previous == "eth_src:":
@@ -429,7 +429,7 @@ class SimpleSwitch13(app_manager.RyuApp):
 
         previous = w
 
-      self.logger.info('---')
+      #self.logger.info('---')
       return matchdict
 
     def getFlows(self, dpid):
@@ -453,7 +453,22 @@ class SimpleSwitch13(app_manager.RyuApp):
         return trlist
 
     def getAllowedTraffic(self, dpid):
-      return "allowed"
+      allowedTraffic = []
+      allowedMatchDict = {}
+      if int(dpid) not in self.flowtablesdict:
+        return "Datapath ID entry not found... "
+      else:
+        flows = self.flowtablesdict[int(dpid)]
+        for flow in flows:
+          if 'match' in flow:
+            self.logger.info('Matching allowed traffic found... ' )
+            allowedTraffic.append(flow['matchdict'])
+            '''match = flows['match']
+            if 'eth_src' in match:
+              allowedMatchDict['eth_src'] = match['eth_src']'''
+
+
+      return allowedTraffic
 
     def setNewFWRule(self, data):
       self.logger.info('New FW rule received... ' )
@@ -521,7 +536,7 @@ class SGController(ControllerBase):
 
   @route('fw', url_traffic_allowed, methods = ['GET'], requirements = {'dpid': dpid_lib.DPID_PATTERN})
   def list_fw_traffic_denied(self, req, **kwargs):
-    traffic = self.sg_switch.getTraffic(kwargs['dpid'])
+    traffic = self.sg_switch.getAllowedTraffic(kwargs['dpid'])
     body = json.dumps(traffic)
     return Response(content_type='application/json', body = body)
 
