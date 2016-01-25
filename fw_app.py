@@ -1,4 +1,4 @@
-# Web application for Adaptive Firewall for Smart Grid Security (3.3.6)
+# Web application for Adaptive Firewall for Smart Grid Security (3.3.7)
 
 from flask import Flask, url_for
 from flask import request
@@ -77,7 +77,7 @@ def rules():
   for switchname, dpid in switchdpidsdict.iteritems():
     data = getDataFromConnectionGET(urlRules+dpid)
     page += "<h3>" + switchname + "</h3>"
-    if data == -1:
+    if data == -1 or data == 0:
       page += "Cannot connect to the device or get data from the device... "
     else:
       page += printTable(data)
@@ -102,6 +102,7 @@ def trafficAllowed():
     else:
       page += printTrafficTable(data, "DENY")
 
+  page += "<p>Note: default traffic to controller is not displayed  </p>"
   page += "</div>"
   return page_header + page
 
@@ -180,6 +181,7 @@ def printTrafficTable(data, action):
 
   #if isinstance(data, (list)):
   if data == 0:
+    return "No traffic found"
     return "Datapath ID entry not found... "
 
 
@@ -190,6 +192,8 @@ def printTrafficTable(data, action):
     page += "<tr> <td colspan='5' style='text-align:center; '>No allowed traffic</td></tr>"
   num = 1
   for rule in data:
+    if 'priority' in rule and rule['priority'] == 0:
+      continue #Default rules pointing to different tables
     color = "white"
     if num % 2 == 0:
       color = "#E0FFFF"

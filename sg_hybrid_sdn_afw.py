@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adaptive Firewall for Smart Grid Security, 3.3.6
+# Adaptive Firewall for Smart Grid Security, 3.3.7
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -33,6 +33,7 @@ from ryu.ofproto.ofproto_v1_3 import OFPG_ANY
 import time
 import json
 import logging
+from ryu import utils
 from webob import Response
 from ryu.app.wsgi import ControllerBase, WSGIApplication, route
 from ryu.lib import dpid as dpid_lib
@@ -434,7 +435,7 @@ class SimpleSwitch13(app_manager.RyuApp):
     def getFlows(self, dpid):
       if int(dpid) not in self.flowtablesdict:
         self.logger.info('DPID not found... ' )
-        return "Datapath ID entry not found... "
+        return 0
       else:
         return self.flowtablesdict[int(dpid)]
 
@@ -487,16 +488,19 @@ class SimpleSwitch13(app_manager.RyuApp):
           continue
         else:
           self.applyNewFWRule(datapath, match, int(rule.rulepriority))
+          self.deleteDenyRule(datapath, match)
           if rule.ruletype == 2:
             rule = self.fileLoader.swapRuleSrcDst(rule)
             match = self.fileLoader.createMatch(rule, datapath.ofproto_parser, dpid)
             if match == 0:
               continue
             self.applyNewFWRule(datapath, match, int(rule.rulepriority))
+            self.deleteDenyRule(datapath, match)
           else:
             self.logger.info('One way rule only! ')
 
       #self.logger.info('Data2: ' +str(data['data']) )
+
       return 200
 
     def applyNewFWRule(self, datapath, match, priority):
@@ -505,6 +509,19 @@ class SimpleSwitch13(app_manager.RyuApp):
       self.add_flow(datapath, priority, 120, 100, match,
                     [parser.OFPActionOutput(ofproto.OFPP_NORMAL)])
       self.logger.info('New FW rule applied... ' )
+
+    def deleteDenyRule(self, datapath, match):
+      return
+      #TODO - this would delete a new flow!!! Bundling needed
+      ofproto = datapath.ofproto
+      parser = datapath.ofproto_parser
+      #inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,actions)]
+
+      mod = parser.OFPFlowMod(datapath=datapath, match=match,
+                              command = ofproto.OFPFC_DELETE)
+      datapath.send_msg(mod)
+      self.logger.info('Duplicated deny rule deleted... ' )
+
 
     @set_ev_cls(ofp_event.EventOFPErrorMsg,
             [HANDSHAKE_DISPATCHER, CONFIG_DISPATCHER, MAIN_DISPATCHER])
