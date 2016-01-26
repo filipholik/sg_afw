@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adaptive Firewall for Smart Grid Security, 3.3.7
+# Adaptive Firewall for Smart Grid Security, 3.3.8
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -295,6 +295,16 @@ class SimpleSwitch13(app_manager.RyuApp):
 
       self.logger.info('New traffic captured... ')
 
+    def deleteTraffic(self, dpid, matchString):
+      if dpid in self.trafficdict:
+        allTraffic = self.trafficdict[dpid]
+        if matchString in allTraffic:
+          self.logger.info('Deleting existing traffic' )
+          allTraffic.remove(deleted)
+          self.trafficdict[dpid] = allTraffic
+          return 1
+      return 0
+
     @set_ev_cls(ofp_event.EventOFPFlowRemoved, MAIN_DISPATCHER)
     def flow_removed_handler(self, ev):
       self.logger.info('Flow_removed notification received... ')
@@ -318,6 +328,10 @@ class SimpleSwitch13(app_manager.RyuApp):
       deleted['eth_src'] = eth_src
       deleted['eth_dst'] = eth_dst
       deleted['eth_type'] = eth_type
+
+      self.deleteTraffic(dp.id, deleted)
+
+      '''
       allTraffic = []
       if dp.id in self.trafficdict:
         allTraffic = self.trafficdict[dp.id]
@@ -327,7 +341,7 @@ class SimpleSwitch13(app_manager.RyuApp):
       if deleted in allTraffic:
         self.logger.info('Deleting existing traffic' )
         allTraffic.remove(deleted)
-        self.trafficdict[dp.id] = allTraffic
+        self.trafficdict[dp.id] = allTraffic'''
 
       '''if msg.reason == ofp.OFPRR_IDLE_TIMEOUT:
         reason = 'IDLE TIMEOUT'
@@ -439,42 +453,23 @@ class SimpleSwitch13(app_manager.RyuApp):
       else:
         return self.flowtablesdict[int(dpid)]
 
-    def getDeniedTraffic(self, dpid):
-      if int(dpid) not in self.trafficdict:
-        return 0
-      else:
-        return self.trafficdict[int(dpid)]
-        '''
-        allTraffic = self.trafficdict[int(dpid)]
-        trlist = []
-        for tr in allTraffic:
-          trlist.append(tr['eth_src'])
-          trlist.append(tr['eth_dst'])
-          trlist.append(tr['eth_type'])
-
-        #self.logger.info('SRC: ' + tr['eth_src'] + " DST: " +tr['eth_dst'])
-        return trlist'''
-
-    def getAllowedTraffic(self, dpid):
-      allowedTraffic = []
-      allowedMatchDict = {}
+    def getTraffic(self, dpid, allowed):
+      traffic = []
       if int(dpid) not in self.flowtablesdict:
         return 0
       else:
         flows = self.flowtablesdict[int(dpid)]
         for flow in flows:
           if 'match' in flow:
-            newMatch = flow['matchdict']
-            if flow['priority'] == 3:
+            newMatchDict = flow['matchdict']
+            if allowed == 1 and flow['priority'] == 3:
               continue
-            newMatch['priority'] = flow['priority']
-            allowedTraffic.append(newMatch)
-            '''match = flows['match']
-            if 'eth_src' in match:
-              allowedMatchDict['eth_src'] = match['eth_src']'''
+            if allowed == 0 and flow['priority'] != 3:
+              continue
+            newMatchDict['priority'] = flow['priority']
+            traffic.append(newMatchDict)
+      return traffic
 
-
-      return allowedTraffic
 
     def setNewFWRule(self, data):
       self.logger.info('New FW rule received... ' )
@@ -487,15 +482,15 @@ class SimpleSwitch13(app_manager.RyuApp):
         if match == 0:
           continue
         else:
-          self.applyNewFWRule(datapath, match, int(rule.rulepriority))
           self.deleteDenyRule(datapath, match)
+          self.applyNewFWRule(datapath, match, int(rule.rulepriority))
           if rule.ruletype == 2:
             rule = self.fileLoader.swapRuleSrcDst(rule)
             match = self.fileLoader.createMatch(rule, datapath.ofproto_parser, dpid)
             if match == 0:
               continue
-            self.applyNewFWRule(datapath, match, int(rule.rulepriority))
             self.deleteDenyRule(datapath, match)
+            self.applyNewFWRule(datapath, match, int(rule.rulepriority))
           else:
             self.logger.info('One way rule only! ')
 
@@ -511,13 +506,14 @@ class SimpleSwitch13(app_manager.RyuApp):
       self.logger.info('New FW rule applied... ' )
 
     def deleteDenyRule(self, datapath, match):
-      return
+      #return
       #TODO - this would delete a new flow!!! Bundling needed
       ofproto = datapath.ofproto
       parser = datapath.ofproto_parser
       #inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,actions)]
 
-      mod = parser.OFPFlowMod(datapath=datapath, match=match,
+      mod = parser.OFPFlowMod(datapath=datapath, match=match, priority = 3, table_id = 100,
+                              out_port = ofproto.OFPP_ANY, out_group = ofproto.OFPG_ANY,
                               command = ofproto.OFPFC_DELETE)
       datapath.send_msg(mod)
       self.logger.info('Duplicated deny rule deleted... ' )
@@ -554,13 +550,13 @@ class SGController(ControllerBase):
 
   @route('fw', url_traffic_denied, methods = ['GET'], requirements = {'dpid': dpid_lib.DPID_PATTERN})
   def list_fw_traffic_allowed(self, req, **kwargs):
-    traffic = self.sg_switch.getDeniedTraffic(kwargs['dpid'])
+    traffic = self.sg_switch.getTraffic(kwargs['dpid'], 0)
     body = json.dumps(traffic)
     return Response(content_type='application/json', body = body)
 
   @route('fw', url_traffic_allowed, methods = ['GET'], requirements = {'dpid': dpid_lib.DPID_PATTERN})
   def list_fw_traffic_denied(self, req, **kwargs):
-    traffic = self.sg_switch.getAllowedTraffic(kwargs['dpid'])
+    traffic = self.sg_switch.getTraffic(kwargs['dpid'], 1)
     body = json.dumps(traffic)
     return Response(content_type='application/json', body = body)
 

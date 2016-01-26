@@ -1,4 +1,4 @@
-# Web application for Adaptive Firewall for Smart Grid Security (3.3.7)
+# Web application for Adaptive Firewall for Smart Grid Security (3.3.8)
 
 from flask import Flask, url_for
 from flask import request
@@ -189,7 +189,7 @@ def printTrafficTable(data, action):
   <tr> <th>Number </th> <th> Source </th> <th> Destination </th>
   <th> Eth Proto </th><th> Priority</th> <th> Action </th>  </tr> \n"""
   if len(data) == 0:
-    page += "<tr> <td colspan='5' style='text-align:center; '>No allowed traffic</td></tr>"
+    page += "<tr> <td colspan='6' style='text-align:center; '>No traffic</td></tr>"
   num = 1
   for rule in data:
     if 'priority' in rule and rule['priority'] == 0:
@@ -273,6 +273,10 @@ def decodeEthProto(eth_proto):
     return "ARP"
   if int(eth_proto) == 35020:
     return "LLDP"
+  if int(eth_proto) == 35000:
+    return "GOOSE"
+  if int(eth_proto) == 35225:
+    return "BDDP"
   return "unknown"
 
 @app.route('/newrule')
