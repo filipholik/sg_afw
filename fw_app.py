@@ -1,4 +1,4 @@
-# Web application for Adaptive Firewall for Smart Grid Security (3.3.8)
+# Web application for Adaptive Firewall for Smart Grid Security (3.3.9)
 
 from flask import Flask, url_for
 from flask import request
@@ -14,9 +14,10 @@ urlRules = "/fw/rules/"
 urlTrafficAllowed = "/fw/traffic_allowed/"
 urlTrafficDenied = "/fw/traffic_denied/"
 urlNewRule = "/fw/rules/"
+urlTopology = "/fw/topology"
 
 app = Flask(__name__)
-page_header = '<h1 style="text-align:center;">SG Firewall application</h1>\n'
+page_header = '<body><h1 style="text-align:center;">SG Firewall application</h1>\n'
 css_h2 = 'style="background-color:11557C; color:white; text-align:center; "'
 menu = """
 <h3 style="background-color:98AFC7; text-align:center;">
@@ -28,6 +29,7 @@ menu = """
 </h3>
 
 """
+page_footer = "</body>"
 
 #For reading data
 def getDataFromConnectionGET(url):
@@ -66,7 +68,7 @@ def index():
   page += "<h3> Info </h3>"
   page += "<p>Application of SDN in Smart Grid substation.  </p>"
   page += "</div>"
-  return page_header + page
+  return page_header + page + page_footer
 
 @app.route('/rules')
 def rules():
@@ -83,7 +85,7 @@ def rules():
       page += printTable(data)
 
   page += "</div>"
-  return page_header + page
+  return page_header + page + page_footer
 
 @app.route('/trafficAllowed')
 def trafficAllowed():
@@ -104,7 +106,7 @@ def trafficAllowed():
 
   page += "<p>Note: default traffic to controller is not displayed  </p>"
   page += "</div>"
-  return page_header + page
+  return page_header + page + page_footer
 
 @app.route('/trafficDenied')
 def trafficDenied():
@@ -125,7 +127,7 @@ def trafficDenied():
       page += printTrafficTable(data, "ALLOW")
 
   page += "</div>"
-  return page_header + page
+  return page_header + page + page_footer
 
   #TODO auto refresh
   '''
@@ -322,7 +324,7 @@ def newRule():
 
   #page += "<a href='/'style='color:black;'>Main page</a> "
   page += "</div>"
-  return page_header + page
+  return page_header + page + page_footer
 
 @app.route('/sendRule', methods=['POST'])
 def processRuleRequest():
@@ -366,7 +368,7 @@ def processRuleRequest():
 
   page += "<a href='/trafficAllowed'style='color:black;'>Allowed traffic</a> "
   page += "</div>"
-  return page_header + page
+  return page_header + page + page_footer
 
 
 def sendNewRule(rule):
@@ -393,35 +395,114 @@ def sendNewRule(rule):
 def visualization():
   page = menu + '<h2 ' + css_h2 + '>Traffic visualization </h2>'
   #url_for('static', filename='js/libs/jquery-1.7.2.min.js')
+  data = getDataFromConnectionGET(urlTopology)
 
   page += '<div style="text-align:center">'
   #page += menu
   page += "<h3> Info </h3>"
-  page += """
-  <div id="main" role="main">
-      <div id="vis"></div>
-    </div>
-  """
-
-  page += """
-
-  <script>window.jQuery || document.write('<script src="""+ url_for('static', filename='js/libs/jquery-1.7.2.min.js') +"""><\/script>')</script>
-
-  <script defer src="""+ url_for('static', filename='js/plugins.js') +"""></script>
-  <script defer src="""+ url_for('static', filename='js/script.js') +"""></script>
-  <script src="""+ url_for('static', filename='js/libs/coffee-script.js') +"""></script>
-  <script src="""+ url_for('static', filename='js/libs/d3.v2.js') + """></script>
-  <script src="""+ url_for('static', filename='js/Tooltip.js') +"""></script>
-  <script type="""+ url_for('static', filename='text/coffeescript" src="coffee/vis.coffee') +"""></script>
-
-  <script src="""+ url_for('static', filename='js/libs/modernizr-2.0.6.min.js') +"""></script>
-
-  """
-
-
-
   page += "</div>"
-  return page_header + page
+  page += '<div id="chart"></div>'
+
+  page += """
+<style>
+
+.link {
+  stroke: #aaa;
+  }
+
+.node text {
+stroke:#333;
+cursos:pointer;
+  }
+
+.node circle{
+stroke:#fff;
+stroke-width:3px;
+fill:#555;
+  }
+
+</style>
+  <script src="//d3js.org/d3.v3.min.js"></script>
+
+  <script>
+
+var width = 960,
+    height = 500
+
+var svg = d3.select("#chart").append("svg")
+    .attr("width", width)
+    .attr("height", height);
+
+var force = d3.layout.force()
+    .gravity(.05)
+    .distance(100)
+    .charge(-100)
+    .size([width, height]);
+
+d3.json("http://127.0.0.1:5000/topojson", function(json) {
+  force
+      .nodes(json.nodes)
+      .links(json.links)
+      .start();
+
+  var link = svg.selectAll(".link")
+      .data(json.links)
+    .enter().append("line")
+      .attr("class", "link")
+    .style("stroke-width", function(d) { return Math.sqrt(d.weight); });
+
+  var node = svg.selectAll(".node")
+      .data(json.nodes)
+    .enter().append("g")
+      .attr("class", "node")
+      .call(force.drag);
+
+  node.append("circle")
+      .attr("r","5");
+
+  node.append("text")
+      .attr("dx", 12)
+      .attr("dy", ".35em")
+      .text(function(d) { return d.name });
+
+  force.on("tick", function() {
+    link.attr("x1", function(d) { return d.source.x; })
+        .attr("y1", function(d) { return d.source.y; })
+        .attr("x2", function(d) { return d.target.x; })
+        .attr("y2", function(d) { return d.target.y; });
+
+    node.attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"; });
+  });
+});
+
+
+
+</script>
+
+
+    """
+
+
+  #page += "</div>"
+  return page_header + page + page_footer
+
+@app.route('/topojson')
+def topologyjson():
+  topologydict = {
+    "nodes":[
+		{"name":"node1","group":1},
+		{"name":"node2","group":2},
+		{"name":"node3","group":2},
+		{"name":"node4","group":3}
+	  ],
+	  "links":[
+		{"source":2,"target":1,"weight":1},
+		{"source":0,"target":2,"weight":3}
+	  ]
+    }
+  return json.dumps(topologydict)
+
+
 
 
 @app.route('/todo')
@@ -443,7 +524,7 @@ def error():
   page += "<p>The application could not connect to the RYU controller... </p>"
   page += "<a href='/'style='color:black;'>Main page</a> "
   page += "</div>"
-  return page_header + page
+  return page_header + page + page_footer
 
 
 

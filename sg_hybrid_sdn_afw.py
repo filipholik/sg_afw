@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adaptive Firewall for Smart Grid Security, 3.3.8
+# Adaptive Firewall for Smart Grid Security, 3.3.9
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -48,6 +48,7 @@ sg_controller_instance_name = 'sg_controller_api_app'
 url_rules = '/fw/rules/{dpid}'
 url_traffic_denied = '/fw/traffic_denied/{dpid}'
 url_traffic_allowed = '/fw/traffic_allowed/{dpid}'
+url_topology = '/fw/topology'
 
 class SimpleSwitch13(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -566,6 +567,23 @@ class SGController(ControllerBase):
     status = self.sg_switch.setNewFWRule(rule)
     return Response(status = status)
 
+    return Response(content_type='application/json', body = body)
+
+  @route('fw', url_topology, methods = ['GET'], requirements = {})
+  def list_fw_topology(self, req, **kwargs):
+    topologydict = {
+    "nodes":[
+		{"name":"node1","group":1},
+		{"name":"node2","group":2},
+		{"name":"node3","group":2},
+		{"name":"node4","group":3}
+	  ],
+	  "links":[
+		{"source":2,"target":1,"weight":1},
+		{"source":0,"target":2,"weight":3}
+	  ]
+    }
+    body = json.dumps(topologydict)
     return Response(content_type='application/json', body = body)
 
 
