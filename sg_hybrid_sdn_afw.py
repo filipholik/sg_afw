@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adaptive Firewall for Smart Grid Security, 3.3.9
+# Adaptive Firewall for Smart Grid Security, 3.4.0
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -49,6 +49,7 @@ url_rules = '/fw/rules/{dpid}'
 url_traffic_denied = '/fw/traffic_denied/{dpid}'
 url_traffic_allowed = '/fw/traffic_allowed/{dpid}'
 url_topology = '/fw/topology'
+url_traffic = '/fw/traffic'
 
 class SimpleSwitch13(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -573,18 +574,62 @@ class SGController(ControllerBase):
   def list_fw_topology(self, req, **kwargs):
     topologydict = {
     "nodes":[
-		{"name":"node1","group":1},
-		{"name":"node2","group":2},
-		{"name":"node3","group":2},
-		{"name":"node4","group":3}
+    {"name":"Switch 1","group":1},
+    {"name":"Switch 2","group":2},
+		{"name":"IED1","group":1},
+		{"name":"IED2","group":1},
+		{"name":"Coll1","group":1},
+		{"name":"IED3","group":2},
+    {"name":"IED4","group":2},
+    {"name":"Coll2","group":2},
 	  ],
 	  "links":[
-		{"source":2,"target":1,"weight":1},
-		{"source":0,"target":2,"weight":3}
+		{"source":0,"target":1,"weight":10},
+		{"source":0,"target":1,"weight":10},
+    {"source":0,"target":2,"weight":3},
+    {"source":0,"target":3,"weight":3},
+    {"source":0,"target":4,"weight":3},
+    {"source":1,"target":5,"weight":3},
+    {"source":1,"target":6,"weight":3},
+    {"source":1,"target":7,"weight":3}
 	  ]
     }
     body = json.dumps(topologydict)
     return Response(content_type='application/json', body = body)
+
+  @route('fw', url_traffic, methods = ['GET'], requirements = {})
+  def list_fw_traffic(self, req, **kwargs):
+    trafficdict = {
+     "name": "traffic",
+     "children": [
+      {
+       "name": "L2",
+       "children": [
+        {
+         "name": "0x0800",
+         "children": [
+          {"name": "IED1 <-> IED3", "size": 3938},
+          {"name": "IED2 <-> IED4", "size": 3812}
+         ]
+        },
+        {
+         "name": "GOOSE",
+         "children": [
+          {"name": "IED1 -> Coll1", "size": 3534}
+         ]
+        },
+        {
+         "name": "ARP",
+         "children": [
+          {"name": "IED4", "size": 7074}
+         ]
+        }
+       ]
+      }
+      ]}
+    body = json.dumps(trafficdict)
+    return Response(content_type='application/json', body = body)
+
 
 
 

@@ -1,4 +1,4 @@
-# Web application for Adaptive Firewall for Smart Grid Security (3.3.9)
+# Web application for Adaptive Firewall for Smart Grid Security (3.4.0)
 
 from flask import Flask, url_for
 from flask import request
@@ -15,6 +15,7 @@ urlTrafficAllowed = "/fw/traffic_allowed/"
 urlTrafficDenied = "/fw/traffic_denied/"
 urlNewRule = "/fw/rules/"
 urlTopology = "/fw/topology"
+urlTraffic = "/fw/traffic"
 
 app = Flask(__name__)
 page_header = '<body><h1 style="text-align:center;">SG Firewall application</h1>\n'
@@ -63,10 +64,99 @@ def getResponseStatusPOST(url, data):
 @app.route('/')
 def index():
   page = menu + '<h2 ' + css_h2 + '>Main page </h2>'
+  #url_for('static', filename='js/libs/jquery-1.7.2.min.js')
+
+
   page += '<div style="text-align:center">'
-  #page += menu
   page += "<h3> Info </h3>"
   page += "<p>Application of SDN in Smart Grid substation.  </p>"
+  page += "<h3> Topology </h3>"
+  page += '<div id="chart"></div>'
+
+  data = getDataFromConnectionGET(urlTopology)
+  if data == -1:
+    page += "No connection to the controller app... <br> Could not get topology file... "
+  else:
+    page += """
+<style>
+
+.link {
+  stroke: #aaa;
+  }
+
+.node text {
+stroke:#333;
+cursos:pointer;
+  }
+
+.node circle{
+stroke:#fff;
+stroke-width:3px;
+fill:#555;
+  }
+
+</style>
+  <script src="//d3js.org/d3.v3.min.js"></script>
+
+  <script>
+
+var width = 960,
+    height = 600
+
+var svg = d3.select("#chart").append("svg")
+    .attr("width", width)
+    .attr("height", height);
+
+var force = d3.layout.force()
+    .gravity(.05)
+    .distance(100)
+    .charge(-1000)
+    .size([width, height]);
+
+d3.json("http://127.0.0.1:5000/topojson", function(json) {
+  force
+      .nodes(json.nodes)
+      .links(json.links)
+      .start();
+
+  var link = svg.selectAll(".link")
+      .data(json.links)
+    .enter().append("line")
+      .attr("class", "link")
+    .style("stroke-width", function(d) { return Math.sqrt(d.weight); });
+
+  var node = svg.selectAll(".node")
+      .data(json.nodes)
+    .enter().append("g")
+      .attr("class", "node")
+      .call(force.drag);
+
+  node.append("circle")
+      .attr("r","10");
+
+  node.append("text")
+      .attr("dx", 12)
+      .attr("dy", ".35em")
+      .text(function(d) { return d.name });
+
+  force.on("tick", function() {
+    link.attr("x1", function(d) { return d.source.x; })
+        .attr("y1", function(d) { return d.source.y; })
+        .attr("x2", function(d) { return d.target.x; })
+        .attr("y2", function(d) { return d.target.y; });
+
+    node.attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"; });
+  });
+});
+
+
+
+</script>
+
+
+    """
+
+
   page += "</div>"
   return page_header + page + page_footer
 
@@ -398,84 +488,178 @@ def visualization():
   data = getDataFromConnectionGET(urlTopology)
 
   page += '<div style="text-align:center">'
-  #page += menu
-  page += "<h3> Info </h3>"
-  page += "</div>"
-  page += '<div id="chart"></div>'
+  #page += "<h3>  </h3>"
+  page += '<div id="vis"></div>'
+
 
   page += """
-<style>
+  <style>
 
-.link {
-  stroke: #aaa;
+.node {
+  cursor: pointer;
+  }
+
+.node circle {
+  fill: #fff;
+  stroke: steelblue;
+  stroke-width: 1.5px;
   }
 
 .node text {
-stroke:#333;
-cursos:pointer;
+  font: 10px sans-serif;
   }
 
-.node circle{
-stroke:#fff;
-stroke-width:3px;
-fill:#555;
+.link {
+  fill: none;
+  stroke: #ccc;
+  stroke-width: 1.5px;
   }
 
 </style>
-  <script src="//d3js.org/d3.v3.min.js"></script>
 
-  <script>
+<script src="//d3js.org/d3.v3.min.js"></script>
 
-var width = 960,
-    height = 500
+<script>
 
-var svg = d3.select("#chart").append("svg")
-    .attr("width", width)
-    .attr("height", height);
+var margin = {top: 20, right: 120, bottom: 20, left: 120},
+    width = 960 - margin.right - margin.left,
+    height = 800 - margin.top - margin.bottom;
 
-var force = d3.layout.force()
-    .gravity(.05)
-    .distance(100)
-    .charge(-100)
-    .size([width, height]);
+var i = 0,
+    duration = 750,
+    root;
 
-d3.json("http://127.0.0.1:5000/topojson", function(json) {
-  force
-      .nodes(json.nodes)
-      .links(json.links)
-      .start();
+var tree = d3.layout.tree()
+    .size([height, width]);
 
-  var link = svg.selectAll(".link")
-      .data(json.links)
-    .enter().append("line")
-      .attr("class", "link")
-    .style("stroke-width", function(d) { return Math.sqrt(d.weight); });
+var diagonal = d3.svg.diagonal()
+    .projection(function(d) { return [d.y, d.x]; });
 
-  var node = svg.selectAll(".node")
-      .data(json.nodes)
-    .enter().append("g")
-      .attr("class", "node")
-      .call(force.drag);
+var svg = d3.select("#vis").append("svg")
+    .attr("width", width + margin.right + margin.left)
+    .attr("height", height + margin.top + margin.bottom)
+  .append("g")
+    .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
 
-  node.append("circle")
-      .attr("r","5");
+d3.json("http://127.0.0.1:5000/trafficjson", function(error, flare) {
+  if (error) throw error;
 
-  node.append("text")
-      .attr("dx", 12)
-      .attr("dy", ".35em")
-      .text(function(d) { return d.name });
+  root = flare;
+  root.x0 = height / 2;
+  root.y0 = 0;
 
-  force.on("tick", function() {
-    link.attr("x1", function(d) { return d.source.x; })
-        .attr("y1", function(d) { return d.source.y; })
-        .attr("x2", function(d) { return d.target.x; })
-        .attr("y2", function(d) { return d.target.y; });
+  function collapse(d) {
+    if (d.children) {
+      d._children = d.children;
+      d._children.forEach(collapse);
+      d.children = null;
+    }
+  }
 
-    node.attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"; });
-  });
+  root.children.forEach(collapse);
+  update(root);
 });
 
+d3.select(self.frameElement).style("height", "800px");
 
+function update(source) {
+
+  // Compute the new tree layout.
+  var nodes = tree.nodes(root).reverse(),
+      links = tree.links(nodes);
+
+  // Normalize for fixed-depth.
+  nodes.forEach(function(d) { d.y = d.depth * 180; });
+
+  // Update the nodes
+  var node = svg.selectAll("g.node")
+      .data(nodes, function(d) { return d.id || (d.id = ++i); });
+
+  // Enter any new nodes at the parent's previous position.
+  var nodeEnter = node.enter().append("g")
+      .attr("class", "node")
+      .attr("transform", function(d) { return "translate(" + source.y0 + "," + source.x0 + ")"; })
+      .on("click", click);
+
+  nodeEnter.append("circle")
+      .attr("r", 1e-6)
+      .style("fill", function(d) { return d._children ? "lightsteelblue" : "#fff"; });
+
+  nodeEnter.append("text")
+      .attr("x", function(d) { return d.children || d._children ? -10 : 10; })
+      .attr("dy", ".35em")
+      .attr("text-anchor", function(d) { return d.children || d._children ? "end" : "start"; })
+      .text(function(d) { return d.name; })
+      .style("fill-opacity", 1e-6);
+
+  // Transition nodes to their new position.
+  var nodeUpdate = node.transition()
+      .duration(duration)
+      .attr("transform", function(d) { return "translate(" + d.y + "," + d.x + ")"; });
+
+  nodeUpdate.select("circle")
+      .attr("r", 4.5)
+      .style("fill", function(d) { return d._children ? "lightsteelblue" : "#fff"; });
+
+  nodeUpdate.select("text")
+      .style("fill-opacity", 1);
+
+  // Transition exiting nodes to the parent's new position.
+  var nodeExit = node.exit().transition()
+      .duration(duration)
+      .attr("transform", function(d) { return "translate(" + source.y + "," + source.x + ")"; })
+      .remove();
+
+  nodeExit.select("circle")
+      .attr("r", 1e-6);
+
+  nodeExit.select("text")
+      .style("fill-opacity", 1e-6);
+
+  // Update the links
+  var link = svg.selectAll("path.link")
+      .data(links, function(d) { return d.target.id; });
+
+  // Enter any new links at the parent's previous position.
+  link.enter().insert("path", "g")
+      .attr("class", "link")
+      .attr("d", function(d) {
+        var o = {x: source.x0, y: source.y0};
+        return diagonal({source: o, target: o});
+      });
+
+  // Transition links to their new position.
+  link.transition()
+      .duration(duration)
+      .attr("d", diagonal);
+
+  // Transition exiting nodes to the parent's new position.
+  link.exit().transition()
+      .duration(duration)
+      .attr("d", function(d) {
+        var o = {x: source.x, y: source.y};
+        return diagonal({source: o, target: o});
+      })
+      .remove();
+
+  // Stash the old positions for transition.
+  nodes.forEach(function(d) {
+    d.x0 = d.x;
+    d.y0 = d.y;
+  });
+}
+
+// Toggle children on click.
+function click(d) {
+  if (d.children) {
+    d._children = d.children;
+    d.children = null;
+  } else {
+    d.children = d._children;
+    d._children = null;
+  }
+  update(d);
+}
 
 </script>
 
@@ -483,26 +667,19 @@ d3.json("http://127.0.0.1:5000/topojson", function(json) {
     """
 
 
-  #page += "</div>"
+  page += "</div>"
   return page_header + page + page_footer
 
 @app.route('/topojson')
 def topologyjson():
-  topologydict = {
-    "nodes":[
-		{"name":"node1","group":1},
-		{"name":"node2","group":2},
-		{"name":"node3","group":2},
-		{"name":"node4","group":3}
-	  ],
-	  "links":[
-		{"source":2,"target":1,"weight":1},
-		{"source":0,"target":2,"weight":3}
-	  ]
-    }
-  return json.dumps(topologydict)
+  topology = getDataFromConnectionGET(urlTopology)
+  return json.dumps(topology)
 
 
+@app.route('/trafficjson')
+def trafficJson():
+  traffic = getDataFromConnectionGET(urlTraffic)
+  return json.dumps(traffic)
 
 
 @app.route('/todo')
