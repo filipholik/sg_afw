@@ -6,7 +6,7 @@ class FileLoader():
   mac_addresses = {'0':'00:00:00:00:00:00'}
   rules = []
   topology = 0
-  path = 'ryu/ryu/app/sg'
+  path = 'ryu/ryu/app/sg/files'
 
   def loadRulesFile(self):
       del self.rules[:] #Otherwise rules on second switch loaded twice

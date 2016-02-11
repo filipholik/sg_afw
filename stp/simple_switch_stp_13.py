@@ -110,14 +110,15 @@ class SimpleSwitch13(app_manager.RyuApp):
         # learn a mac address to avoid FLOOD next time.
         self.mac_to_port[dpid][src] = in_port
 
-        # Patch for our specific topology (two switches connected via duplicated cables)
+        # Patch for our specific topology (two switches connected via duplicated cables),
+        # prevents learning from specific devices (VM1 - VM6) on wrong links
         if str(dpid) == "2991443865190400":
             if src == "fa:16:3e:57:f6:e8" and in_port != 10:
-                self.logger.info("Inconsistent MAC to Port mapping!!! ")
+                self.logger.info("Inconsistent MAC to Port mapping for VM6! ")
                 self.mac_to_port[dpid][src] = 10
         if str(dpid) == "2960111173765568":
             if src == "fa:16:3e:30:cc:04" and in_port != 2:
-                self.logger.info("Inconsistent MAC to Port mapping!!! ")
+                self.logger.info("Inconsistent MAC to Port mapping for VM1! ")
                 self.mac_to_port[dpid][src] = 2
 
         self.logger.info("MAC_to_PORT: %s", self.mac_to_port)
