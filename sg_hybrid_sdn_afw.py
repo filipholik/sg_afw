@@ -55,6 +55,9 @@ class SimpleSwitch13(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
     _CONTEXTS = { 'wsgi' : WSGIApplication }
 
+    IDLE_TIMEOUTS = 180 #TODO Set idle_timeouts to 0 = infinity (180 only for testing purposes)
+    HW_TABLE_ID = 100 #Set id of the flow table (100 = HP switches)
+
     flowtablesdict = {} #Flow Tables of all switches
     trafficdict = {} #DPIDS, Array of captured traffic - dicts
     #fileloader
@@ -94,32 +97,18 @@ class SimpleSwitch13(app_manager.RyuApp):
         action_normal = [parser.OFPActionOutput(ofproto.OFPP_NORMAL)]
         action_copy = [parser.OFPActionOutput(ofproto.OFPP_NORMAL), parser.OFPActionOutput(ofproto.OFPP_CONTROLLER)]
 
-        #TODO set idle_timeouts to 0 - infinity, 180 only for testing purposes
-
         #LLDP frames
-        self.add_flow(datapath, 10, 180, 100, parser.OFPMatch(eth_type=0x88cc), actions)
+        self.add_flow(datapath, 10, self.IDLE_TIMEOUTS, self.HW_TABLE_ID, parser.OFPMatch(eth_type=0x88cc), actions)
 
         #Hybrid SDN Config -----------------------------------------
         #BDDP frames
-        self.add_flow(datapath, 10, 180, 100, parser.OFPMatch(eth_type=0x8999), actions)
+        self.add_flow(datapath, 10, self.IDLE_TIMEOUTS, self.HW_TABLE_ID, parser.OFPMatch(eth_type=0x8999), actions)
 
         #ARP frames - send in normal
-        self.add_flow(datapath, 10, 180, 100, parser.OFPMatch(eth_type=2054), action_normal)
-        '''
-        #ARP frames - copy action
-        #self.add_flow(datapath, 1, 180, 100, parser.OFPMatch(eth_type=2054), action_normal)
-        # first instruction to table 200 must be set
-        instruction_200 = [parser.OFPInstructionGotoTable(200)]
-        inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,
-                                             actions)]
-        mod = parser.OFPFlowMod(datapath, table_id=100, command=ofproto.OFPFC_ADD, idle_timeout = 180,
-                                priority = 2, match=parser.OFPMatch(eth_type=2054), instructions=instruction_200)
-        datapath.send_msg(mod)
-        # rule itself must be inserted in table 200 (supports copying of packets)
-        self.add_flow(datapath, 2, 180, 200, parser.OFPMatch(eth_type=2054), action_copy)'''
+        self.add_flow(datapath, 10, self.IDLE_TIMEOUTS, self.HW_TABLE_ID, parser.OFPMatch(eth_type=2054), action_normal)
 
         #Deny everything else - send it to the controller
-        self.add_flow(datapath, 1, 180, 100, match, actions)
+        self.add_flow(datapath, 1, self.IDLE_TIMEOUTS, self.HW_TABLE_ID, match, actions)
 
         self.fw_init(datapath)
 
@@ -136,7 +125,7 @@ class SimpleSwitch13(app_manager.RyuApp):
                        len(listofmatches))
 
       for match in listofmatches:
-        self.add_flow(datapath, 5, 120, 100, match,
+        self.add_flow(datapath, 5, self.IDLE_TIMEOUTS, self.HW_TABLE_ID, match,
              [parser.OFPActionOutput(ofproto.OFPP_NORMAL)])
 
     def add_flow(self, datapath, priority, idle_timeout, table_id, match, actions, buffer_id=None):
