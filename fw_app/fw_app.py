@@ -1,4 +1,4 @@
-# Web application for Adaptive Firewall for Smart Grid Security (3.4.0)
+# Web application for Adaptive Firewall for Smart Grid Security (3.4.2)
 
 from flask import Flask, url_for
 from flask import request
@@ -14,6 +14,7 @@ urlRules = "/fw/rules/"
 urlTrafficAllowed = "/fw/traffic_allowed/"
 urlTrafficDenied = "/fw/traffic_denied/"
 urlNewRule = "/fw/rules/"
+urlDelRule = "/fw/delrule/"
 urlTopology = "/fw/topology"
 urlTraffic = "/fw/traffic"
 
@@ -269,9 +270,7 @@ def printTable(data):
   return page
 
 def printTrafficTable(data, action):
-  #TODO action
-
-  #if isinstance(data, (list)):
+    #if isinstance(data, (list)):
   if data == 0:
     return "No traffic found"
     return "Datapath ID entry not found... "
@@ -283,6 +282,7 @@ def printTrafficTable(data, action):
   if len(data) == 0:
     page += "<tr> <td colspan='6' style='text-align:center; '>No traffic</td></tr>"
   num = 1
+  action_page = '/newrule'
   for rule in data:
     if 'priority' in rule and rule['priority'] == 0:
       continue #Default rules pointing to different tables
@@ -308,10 +308,16 @@ def printTrafficTable(data, action):
       page += "<td>Any protocol</td>"
     if 'priority' in rule:
       page += "<td>" + str(rule['priority']) + "</td>"
-      action_link += "prio=" + str(11)
+      if action == 'DENY':
+        action_link += "prio=" + str(rule['priority']) #Priority must match deny rules!
+      else:
+        action_link += "prio=" + str(11) #Priority must be higher than deny rules!
+
     else:
       page += "<td>?</td>"
-    page += "<td><a href='/newrule"+action_link+"'style='color:black;'>"+ action +"</a>  </td></tr>"
+    if action == 'DENY':
+      action_page = '/delRule'
+    page += "<td><a href='"+ action_page +action_link+"'style='color:black;'>"+ action +"</a>  </td></tr>"
     num += 1
 
   page += "</table>"
@@ -406,6 +412,7 @@ def newRule():
       <option value="1">One-way</option>
     </select>
     <br>
+    <input type="hidden" name="insert_delete" value="insert">
     <input type="submit" value="Insert rule">
   </fieldset>
 </form>
@@ -416,6 +423,53 @@ def newRule():
   page += "</div>"
   return page_header + page + page_footer
 
+@app.route('/delRule')
+def delRule():
+  page = menu + '<h2 ' + css_h2 + '>Delete the existing rule </h2>'
+  page += '<div style="text-align:center">'
+  #page += menu
+  page += "<h3> Delete the existing FW rule in the network </h3>"
+  page += "<p>Field marked with * are required. Empty field means ANY. </p>"
+
+  src = request.args.get('src', '')
+  dst = request.args.get('dst', '')
+  proto = request.args.get('type', '')
+  prio = request.args.get('prio', '')
+
+  page += """
+  <form action="/sendRule" method="post" accept-charset="UTF-8"
+  enctype="application/json" autocomplete="off" novalidate
+  style="width:80%; margin-left:10%; " >
+  <fieldset>
+    <legend>Rule:</legend>
+    Source MAC:
+    <input type="text" name="src" value=""" + src + """><br>
+    Destination MAC:
+    <input type="text" name="dst" value=""" + dst + """><br>
+    Ethernet type:
+    <input type="text" name="proto" value="""+ proto +"""><br>
+    Priority:
+    <input type="text" name="prio" value="""+ prio +"""><br>
+
+    <br>
+    Rule type:
+    <select name="type">
+      <option value="2" selected>Two-ways</option>
+      <option value="1">One-way</option>
+    </select>
+    <br>
+    <input type="hidden" name="insert_delete" value="delete">
+    <input type="submit" value="Delete rule">
+  </fieldset>
+</form>
+
+  """
+
+  #page += "<a href='/'style='color:black;'>Main page</a> "
+  page += "</div>"
+  return page_header + page + page_footer
+
+
 @app.route('/sendRule', methods=['POST'])
 def processRuleRequest():
 
@@ -425,6 +479,7 @@ def processRuleRequest():
   proto = int(request.form['proto'])
   prio = request.form['prio']
   ruletype = request.form['type']
+  insert_delete = request.form['insert_delete']
   #print hex(proto)
 
   #data = {}
@@ -441,14 +496,20 @@ def processRuleRequest():
   rule.append(ruletype)'''
 
   jsonrule = json.dumps(rule)
-  responsestatus = sendNewRule(jsonrule)
+  responsestatus = sendNewRule(jsonrule, insert_delete)
   if responsestatus == -1:
     return error()
   if responsestatus == 200:
-    page = menu + '<h2 ' + css_h2 + '>Rule sent </h2>'
+    if insert_delete == 'insert':
+      page = menu + '<h2 ' + css_h2 + '>Rule sent </h2>'
+    else:
+      page = menu + '<h2 ' + css_h2 + '>Rule deleted </h2>'
     page += '<div style="text-align:center">'
     #page += menu
-    page += "<h3> Rule was applied successfully </h3>"
+    if insert_delete == 'insert':
+      page += "<h3> Rule was applied successfully </h3>"
+    else:
+      page += "<h3> Rule was deleted successfully </h3>"
     page += "<p>Rule: "+ src +" -> "+ dst +" ("+ ruletype +"-way)</p>"
   else:
     page = menu + '<h2 ' + css_h2 + '>Error when applying rule </h2>'
@@ -461,10 +522,14 @@ def processRuleRequest():
   return page_header + page + page_footer
 
 
-def sendNewRule(rule):
+def sendNewRule(rule, insert_delete):
   status = 0
+  if insert_delete == 'insert':
+    url = urlRules
+  else:
+    url = urlDelRule
   for switchname, dpid in switchdpidsdict.iteritems():
-    responseStatus = getResponseStatusPOST(urlRules+dpid, rule)
+    responseStatus = getResponseStatusPOST(url+dpid, rule)
     if responseStatus == -1:
       return -1
     status = responseStatus

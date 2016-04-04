@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adaptive Firewall for Smart Grid Security, 3.4.0
+# Adaptive Firewall for Smart Grid Security, 3.4.2
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -46,6 +46,7 @@ import re
 
 sg_controller_instance_name = 'sg_controller_api_app'
 url_rules = '/fw/rules/{dpid}'
+url_delrule = '/fw/delrule/{dpid}'
 url_traffic_denied = '/fw/traffic_denied/{dpid}'
 url_traffic_allowed = '/fw/traffic_allowed/{dpid}'
 url_topology = '/fw/topology'
@@ -144,7 +145,7 @@ class SimpleSwitch13(app_manager.RyuApp):
                                     match=match, idle_timeout=idle_timeout, instructions=inst,
                                     table_id=table_id, flags=ofproto.OFPFF_SEND_FLOW_REM)
         datapath.send_msg(mod)
-
+        self.logger.info("Added flow: %s, %s", datapath, match)
 
     @set_ev_cls(ofp_event.EventOFPPortStatus, MAIN_DISPATCHER)
     def _port_status_handler(self, ev):
@@ -322,40 +323,6 @@ class SimpleSwitch13(app_manager.RyuApp):
 
       self.deleteTraffic(dp.id, deleted)
 
-      '''
-      allTraffic = []
-      if dp.id in self.trafficdict:
-        allTraffic = self.trafficdict[dp.id]
-      for tr in allTraffic:
-        self.logger.info('SRC: ' + tr['eth_src'] + " DST: " +tr['eth_dst'] + "Proto: " + str(tr['eth_type']))
-
-      if deleted in allTraffic:
-        self.logger.info('Deleting existing traffic' )
-        allTraffic.remove(deleted)
-        self.trafficdict[dp.id] = allTraffic'''
-
-      '''if msg.reason == ofp.OFPRR_IDLE_TIMEOUT:
-        reason = 'IDLE TIMEOUT'
-      elif msg.reason == ofp.OFPRR_HARD_TIMEOUT:
-        reason = 'HARD TIMEOUT'
-      elif msg.reason == ofp.OFPRR_DELETE:
-        reason = 'DELETE'
-      elif msg.reason == ofp.OFPRR_GROUP_DELETE:
-        reason = 'GROUP DELETE'
-      else:
-        reason = 'unknown'''
-
-      '''self.logger.info('OFPFlowRemoved received: '
-                            'cookie=%d priority=%d reason=%s table_id=%d '
-                            'duration_sec=%d duration_nsec=%d '
-                            'idle_timeout=%d hard_timeout=%d '
-                            'packet_count=%d byte_count=%d match.fields=%s',
-                            msg.cookie, msg.priority, reason, msg.table_id,
-                            msg.duration_sec, msg.duration_nsec,
-                            msg.idle_timeout, msg.hard_timeout,
-                            msg.packet_count, msg.byte_count, msg.match)
-      '''
-
 
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
     def flow_stats_reply_handler(self, ev):
@@ -379,13 +346,6 @@ class SimpleSwitch13(app_manager.RyuApp):
 
         match = stat.match
         #self.logger.info(match.OFPMatch)
-        ''' if type(match) == type(str()):
-          self.logger.info('string')
-        elif type(match) == type(list()):
-          self.logger.info('list')
-        else:
-          self.logger.info('else')'''
-
 
         flows.append(flowdict)
         '''flows.append('table_id=%s '
@@ -461,49 +421,60 @@ class SimpleSwitch13(app_manager.RyuApp):
             traffic.append(newMatchDict)
       return traffic
 
+    def deleteExistingRule(self, data):
+        self.logger.info('New request for deleting FW rule received... ' )
+        rule = self.fileLoader.createANewRule(data)
+        for dpid in self.datapathdict:
+            datapath = self.datapathdict[dpid]
+            match = self.fileLoader.createMatch(rule, datapath.ofproto_parser, dpid)
+            if match == 0:
+                continue
+            else:
+                self.deleteDenyRule(datapath, match, int(rule.rulepriority))
+                if rule.ruletype == 2 and rule.dst != str('ff:ff:ff:ff:ff:ff'):
+                    rule = self.fileLoader.swapRuleSrcDst(rule)
+                    match = self.fileLoader.createMatch(rule, datapath.ofproto_parser, dpid)
+                    self.deleteDenyRule(datapath, match, int(rule.rulepriority))
+        return 200
 
     def setNewFWRule(self, data):
       self.logger.info('New FW rule received... ' )
       rule = self.fileLoader.createANewRule(data)
-      #self.logger.info('Rule-type: ' + str(rule.twoway) )
 
       for dpid in self.datapathdict:
         datapath = self.datapathdict[dpid]
         match = self.fileLoader.createMatch(rule, datapath.ofproto_parser, dpid)
+        self.logger.info('Destination MAC: %s', rule.dst)
         if match == 0:
-          continue
+            self.logger.info('Match couldnt be created! DPID: %s', dpid)
+            continue
         else:
-          self.deleteDenyRule(datapath, match)
+          self.deleteDenyRule(datapath, match, 3)
           self.applyNewFWRule(datapath, match, int(rule.rulepriority))
-          if rule.ruletype == 2:
-            rule = self.fileLoader.swapRuleSrcDst(rule)
-            match = self.fileLoader.createMatch(rule, datapath.ofproto_parser, dpid)
-            if match == 0:
-              continue
-            self.deleteDenyRule(datapath, match)
-            self.applyNewFWRule(datapath, match, int(rule.rulepriority))
+          if rule.ruletype == 2 and rule.dst != str('ff:ff:ff:ff:ff:ff'):
+            rule2 = self.fileLoader.swapRuleSrcDst(rule)
+            match2 = self.fileLoader.createMatch(rule2, datapath.ofproto_parser, dpid)
+            self.deleteDenyRule(datapath, match2, 3)
+            self.applyNewFWRule(datapath, match2, int(rule.rulepriority))
           else:
-            self.logger.info('One way rule only! ')
-
-      #self.logger.info('Data2: ' +str(data['data']) )
-
+            self.logger.info('One way rule only or destination broadcast! ')
       return 200
 
     def applyNewFWRule(self, datapath, match, priority):
       parser = datapath.ofproto_parser
       ofproto = datapath.ofproto
-      self.add_flow(datapath, priority, 120, 100, match,
+      self.add_flow(datapath, priority, self.IDLE_TIMEOUTS, self.HW_TABLE_ID, match,
                     [parser.OFPActionOutput(ofproto.OFPP_NORMAL)])
       self.logger.info('New FW rule applied... ' )
 
-    def deleteDenyRule(self, datapath, match):
+    def deleteDenyRule(self, datapath, match, priority):
       #return
       #TODO - this would delete a new flow!!! Bundling needed
       ofproto = datapath.ofproto
       parser = datapath.ofproto_parser
       #inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,actions)]
 
-      mod = parser.OFPFlowMod(datapath=datapath, match=match, priority = 3, table_id = 100,
+      mod = parser.OFPFlowMod(datapath=datapath, match=match, priority = priority, table_id = self.HW_TABLE_ID,
                               out_port = ofproto.OFPP_ANY, out_group = ofproto.OFPG_ANY,
                               command = ofproto.OFPFC_DELETE)
       datapath.send_msg(mod)
@@ -530,12 +501,10 @@ class SGController(ControllerBase):
   def list_fw_rules(self, req, **kwargs):
     #sg_switch = self.sg_app
     dpid = dpid_lib.str_to_dpid(kwargs['dpid'])
-
     flows = self.sg_switch.getFlows(kwargs['dpid'])
 
     if flows == 0:
       return Response(status = 404)
-
     body = json.dumps(flows)
     return Response(content_type ='application/json', body = body )
 
@@ -557,7 +526,11 @@ class SGController(ControllerBase):
     status = self.sg_switch.setNewFWRule(rule)
     return Response(status = status)
 
-    return Response(content_type='application/json', body = body)
+  @route('fw', url_delrule, methods = ['POST'], requirements = {'dpid': dpid_lib.DPID_PATTERN})
+  def delete_fw_rule(self, req, **kwargs):
+    rule = json.loads(req.body)
+    status = self.sg_switch.deleteExistingRule(rule)
+    return Response(status = status)
 
   @route('fw', url_topology, methods = ['GET'], requirements = {})
   def list_fw_topology(self, req, **kwargs):

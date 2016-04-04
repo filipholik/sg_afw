@@ -1,4 +1,4 @@
-#For versions  3.3.6+
+#For versions  3.4.2+
 import os
 from ryu.ofproto import ofproto_v1_3
 
@@ -160,6 +160,8 @@ class FileLoader():
       return -1
     else:
       macs = self.topology.access_devicesdict[str(dpid)]
+      if rule.dst == str('ff:ff:ff:ff:ff:ff'):
+          return 1  #Broadcast is always needed.
       if rule.src in macs or rule.dst in macs:
         return 1
       else:
