@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adaptive Firewall for Smart Grid Security, 3.4.2
+# Adaptive Firewall for Smart Grid Security, 3.4.3
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -57,6 +57,7 @@ class SimpleSwitch13(app_manager.RyuApp):
     _CONTEXTS = { 'wsgi' : WSGIApplication }
 
     IDLE_TIMEOUTS = 180 #TODO Set idle_timeouts to 0 = infinity (180 only for testing purposes)
+    DENY_RULES_IDLE_TIMEOUT = 30 #How long unallowed traffic will be blocked
     HW_TABLE_ID = 100 #Set id of the flow table (100 = HP switches)
 
     flowtablesdict = {} #Flow Tables of all switches
@@ -246,7 +247,7 @@ class SimpleSwitch13(app_manager.RyuApp):
         elif out_port == ofproto.OFPP_FLOOD:
            self.logger.info("Flooding not allowed anymore... ")
            self.logger.info("Deny rule inserted to block this traffic... ")
-           self.add_flow(datapath,3, 10, 100, parser.OFPMatch
+           self.add_flow(datapath, 3, self.DENY_RULES_IDLE_TIMEOUT, self.HW_TABLE_ID, parser.OFPMatch
              (eth_dst = dst, eth_src = src, eth_type = eth_vlan.ethertype), [])
 
            #datapath.send_msg(out)
@@ -254,7 +255,7 @@ class SimpleSwitch13(app_manager.RyuApp):
            self.logger.info("Traffic blocked by Controller... ")
            match = parser.OFPMatch(eth_dst = dst, eth_src = src,
                eth_type = eth_vlan.ethertype)
-           self.add_flow(datapath, 3, 10, 100, match, [])
+           self.add_flow(datapath, 3, self.DENY_RULES_IDLE_TIMEOUT, self.HW_TABLE_ID, match, [])
 
 
     def captureTraffic(self, ev):
@@ -405,11 +406,10 @@ class SimpleSwitch13(app_manager.RyuApp):
         return self.flowtablesdict[int(dpid)]
 
     def getTraffic(self, dpid, allowed):
-      traffic = []
-      if int(dpid) not in self.flowtablesdict:
-        return 0
-      else:
-        flows = self.flowtablesdict[int(dpid)]
+        traffic = []
+        flows = self.getFlows(dpid)
+        if flows == 0:
+            return 0
         for flow in flows:
           if 'match' in flow:
             newMatchDict = flow['matchdict']
@@ -419,7 +419,22 @@ class SimpleSwitch13(app_manager.RyuApp):
               continue
             newMatchDict['priority'] = flow['priority']
             traffic.append(newMatchDict)
-      return traffic
+        return traffic
+
+    #For traffic visualization
+    def getTrafficVis(self):
+        traffic = []
+        for dpid in self.flowtablesdict:
+            flows = self.flowtablesdict[dpid]
+            for flow in flows:
+                if 'match' in flow:
+                    newMatchDict = flow['matchdict']
+                    if flow['priority'] == 3:
+                        continue
+                    newMatchDict['priority'] = flow['priority']
+                    traffic.append(newMatchDict)
+
+        return self.fileLoader.createVisualizationData(traffic)
 
     def deleteExistingRule(self, data):
         self.logger.info('New request for deleting FW rule received... ' )
@@ -509,13 +524,13 @@ class SGController(ControllerBase):
     return Response(content_type ='application/json', body = body )
 
   @route('fw', url_traffic_denied, methods = ['GET'], requirements = {'dpid': dpid_lib.DPID_PATTERN})
-  def list_fw_traffic_allowed(self, req, **kwargs):
+  def list_fw_traffic_denied(self, req, **kwargs):
     traffic = self.sg_switch.getTraffic(kwargs['dpid'], 0)
     body = json.dumps(traffic)
     return Response(content_type='application/json', body = body)
 
   @route('fw', url_traffic_allowed, methods = ['GET'], requirements = {'dpid': dpid_lib.DPID_PATTERN})
-  def list_fw_traffic_denied(self, req, **kwargs):
+  def list_fw_traffic_allowed(self, req, **kwargs):
     traffic = self.sg_switch.getTraffic(kwargs['dpid'], 1)
     body = json.dumps(traffic)
     return Response(content_type='application/json', body = body)
@@ -561,6 +576,8 @@ class SGController(ControllerBase):
 
   @route('fw', url_traffic, methods = ['GET'], requirements = {})
   def list_fw_traffic(self, req, **kwargs):
+    traffic = self.sg_switch.getTrafficVis()
+
     trafficdict = {
      "name": "traffic",
      "children": [
@@ -589,7 +606,7 @@ class SGController(ControllerBase):
        ]
       }
       ]}
-    body = json.dumps(trafficdict)
+    body = json.dumps(traffic)
     return Response(content_type='application/json', body = body)
 
 

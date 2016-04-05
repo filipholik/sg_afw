@@ -1,4 +1,4 @@
-#For versions  3.4.2+
+#For versions  3.4.3+
 import os
 from ryu.ofproto import ofproto_v1_3
 
@@ -200,6 +200,60 @@ class FileLoader():
     rule.src = rule.dst
     rule.dst = src
     return rule
+
+  def createVisualizationData(self, traffic):
+      eth_type_ipv4 = 0
+      eth_type_goose = 0
+      eth_type_other = 0
+      l2_trafficDict = {}
+      communication_ipv4 = []
+      for rule in traffic:
+          if 'eth_type' in rule:
+              if rule['eth_type'] == str(2048):
+                  eth_type_ipv4 += 1
+                  if 'ipv4' not in l2_trafficDict:
+                      l2_trafficDict['ipv4'] = 1
+                  else:
+                      l2_trafficDict['ipv4'] += 1
+                      communication_ipv4.append({rule['eth_src'], rule['eth_dst']})
+              elif rule['eth_type'] == str(35000):
+                  eth_type_goose += 1
+                  if 'goose' not in l2_trafficDict:
+                      l2_trafficDict['goose'] = 1
+                  else:
+                      l2_trafficDict['goose'] += 1
+              else:
+                  eth_type_other += 1
+                  if 'other' not in l2_trafficDict:
+                      l2_trafficDict['other'] = 1
+                  else:
+                      l2_trafficDict['other'] += 1
+
+      eth_type_total = eth_type_ipv4 + eth_type_goose + eth_type_other
+      ipv4_array = []
+      for i in range (0, eth_type_ipv4-1):
+          name = communication_ipv4[i]
+          name = "IEDX <-> IEDY" #TODO, test only
+          ipv4_child =  {"name": name} #, "size": 3534
+          #ipv4_child.update({"name"+str(i): "IEDX <-> IEDY"+str(i)})
+          ipv4_array.append(ipv4_child)
+
+
+      trafficvisdict = {
+          "name": "Allowed traffic",
+          "children": [
+              {"name": "L2 ("+str(eth_type_total)+")", "children":
+               [
+                  {"name": "IPv4 ("+str(eth_type_ipv4)+")", "children":
+                      ipv4_array
+                  },
+                  {"name": "GOOSE ("+str(eth_type_goose)+")"},
+                  {"name": "Other ("+str(eth_type_other)+")"},
+               ]
+               }
+          ]
+      }
+      return trafficvisdict
 
 
 class Rule():

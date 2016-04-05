@@ -1,4 +1,4 @@
-# Web application for Adaptive Firewall for Smart Grid Security (3.4.2)
+# Web application for Adaptive Firewall for Smart Grid Security (3.4.3)
 
 from flask import Flask, url_for
 from flask import request
@@ -156,7 +156,6 @@ d3.json("http://127.0.0.1:5000/topojson", function(json) {
 
 
     """
-
 
   page += "</div>"
   return page_header + page + page_footer
@@ -554,10 +553,17 @@ def visualization():
 
   page += '<div style="text-align:center">'
   #page += "<h3>  </h3>"
-  page += '<div id="vis"></div>'
+
+  if data == -1:
+      page += "No connection to the controller app... <br> Could not get the traffic visualization data... "
+  else:
+    page += '<p>Following figure shows allowed traffic in the substation network. </p>'
+    page += '<div id="vis"></div>'
 
 
-  page += """
+
+
+    page += """
   <style>
 
 .node {
@@ -588,7 +594,7 @@ def visualization():
 
 var margin = {top: 20, right: 120, bottom: 20, left: 120},
     width = 960 - margin.right - margin.left,
-    height = 800 - margin.top - margin.bottom;
+    height = 500 - margin.top - margin.bottom;
 
 var i = 0,
     duration = 750,
