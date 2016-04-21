@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adaptive Firewall for Smart Grid Security, 3.4.3
+# Adaptive Firewall for Smart Grid Security, 3.5.0
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -42,6 +42,7 @@ from switchpoll import *
 from threading import *
 
 import re
+import copy
 
 
 sg_controller_instance_name = 'sg_controller_api_app'
@@ -56,9 +57,13 @@ class SimpleSwitch13(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
     _CONTEXTS = { 'wsgi' : WSGIApplication }
 
+    #VARIABLES to set
     IDLE_TIMEOUTS = 180 #TODO Set idle_timeouts to 0 = infinity (180 only for testing purposes)
     DENY_RULES_IDLE_TIMEOUT = 30 #How long unallowed traffic will be blocked
     HW_TABLE_ID = 100 #Set id of the flow table (100 = HP switches)
+    SWITCH_POLL_TIMER = 1 #How often are switches queried (in seconds)
+    PACKET_HISTORY_BUFFER_SIZE = 10 #In seconds
+    MAC_SPOOFPROT_MAX_PPS = 10 #Maximum number of packets, which can be sent per second
 
     flowtablesdict = {} #Flow Tables of all switches
     trafficdict = {} #DPIDS, Array of captured traffic - dicts
@@ -74,7 +79,7 @@ class SimpleSwitch13(app_manager.RyuApp):
 
         #Thread for periodic polling of information from switches
         switchPoll = SwitchPoll()
-        pollThread = Thread(target=switchPoll.run, args=(5,self.datapathdict))
+        pollThread = Thread(target=switchPoll.run, args=(self.SWITCH_POLL_TIMER,self.datapathdict))
         pollThread.start()
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
@@ -327,51 +332,94 @@ class SimpleSwitch13(app_manager.RyuApp):
 
     @set_ev_cls(ofp_event.EventOFPFlowStatsReply, MAIN_DISPATCHER)
     def flow_stats_reply_handler(self, ev):
-      self.logger.info('Flow_stats_reply received... ')
-      #self.flowtablesdict[datapath.id] = json.dumps(ev.msg.body)
-
-      flows = []
-      flowdict = {}
-
-      for stat in ev.msg.body:
+        self.logger.info('Flow_stats_reply received... ')
+        datapath = ev.msg.datapath
+        flows = []
         flowdict = {}
-        flowdict['table_id'] = stat.table_id
-        flowdict['priority'] = stat.priority
-        flowdict['duration_sec'] = stat.duration_sec
-        flowdict['idle_timeout'] = stat.idle_timeout
-        flowdict['packet_count'] = stat.packet_count
-        flowdict['match'] = str(stat.match)
-        flowdict['instructions'] = str(stat.instructions)
-        matchdict = self.createMatchDict(str(stat.match))
-        flowdict['matchdict'] = matchdict
 
-        match = stat.match
-        #self.logger.info(match.OFPMatch)
+        for stat in ev.msg.body:
+            flowdict = {}
+            flowdict['table_id'] = stat.table_id
+            flowdict['priority'] = stat.priority
+            flowdict['duration_sec'] = stat.duration_sec
+            flowdict['idle_timeout'] = stat.idle_timeout
+            flowdict['packet_count'] = stat.packet_count
+            flowdict['match'] = str(stat.match)
+            flowdict['instructions'] = str(stat.instructions)
+            matchdict = self.createMatchDict(str(stat.match))
+            flowdict['matchdict'] = matchdict
 
-        flows.append(flowdict)
-        '''flows.append('table_id=%s '
-                     'duration_sec=%d duration_nsec=%d '
-                     'priority=%d '
-                     'idle_timeout=%d hard_timeout=%d flags=0x%04x '
-                     'cookie=%d packet_count=%d byte_count=%d '
-                     'match=%s instructions=%s' %
-                     (stat.table_id,
-                      stat.duration_sec, stat.duration_nsec,
-                      stat.priority,
-                      stat.idle_timeout, stat.hard_timeout, stat.flags,
-                      stat.cookie, stat.packet_count, stat.byte_count,
-                      stat.match, stat.instructions))'''
-        '''flows.append('table_id = %s'%(stat.table_id))
-        flows.append('priority = %d'%(stat.priority))
-        flows.append('duration_sec = %d'%(stat.duration_sec))
-        flows.append('idle_timeout = %d'%(stat.idle_timeout))
-        flows.append('packet_count = %d'%(stat.packet_count))
-        flows.append('match = %s'%(stat.match))
-        flows.append('instructions = %s'%(stat.instructions))'''
+            match = stat.match
+            #self.logger.info(match.OFPMatch)
 
-      #self.logger.info('FlowStats: %s', flows)
-      datapath = ev.msg.datapath
-      self.flowtablesdict[datapath.id] = flows
+            previous_flowdict = self.flow_exists(datapath.id, flowdict)
+            if previous_flowdict != 0:
+                flowdict = self.add_packet_count_history(previous_flowdict, flowdict)
+                #self.logger.info('FlowHistory: %s', flowdict['packet_count_history'])
+            flows.append(flowdict)
+
+        #self.logger.info('FlowStats: %s', flows)
+        self.flowtablesdict[datapath.id] = flows
+        self.check_mac_spoofing(ev.msg)
+
+    def flow_exists(self, dpid, newflowdict):
+        if dpid in self.flowtablesdict:
+            for flowdict in self.flowtablesdict[dpid]:
+                if newflowdict['table_id'] == flowdict['table_id'] and newflowdict['priority'] == flowdict['priority'] and newflowdict['idle_timeout'] == flowdict['idle_timeout'] and newflowdict['match'] == flowdict['match'] and newflowdict['instructions'] == flowdict['instructions']:
+                    return flowdict
+        #self.logger.info('No match found...')
+        return 0
+
+    def add_packet_count_history(self, old_flow, new_flow):
+        history = []
+        if 'packet_count_history' not in old_flow:
+            history.append(new_flow['packet_count'])
+            new_flow['packet_count_history'] = history
+            return new_flow
+
+        #Already exists
+        packet_count_history = old_flow['packet_count_history']
+        if len(packet_count_history) >= self.PACKET_HISTORY_BUFFER_SIZE:
+            packet_count_history.pop(0)
+        packet_count_history.append(new_flow['packet_count'])
+        new_flow['packet_count_history'] = packet_count_history
+        return new_flow
+
+    def check_mac_spoofing(self, msg):
+        #TODO
+        self.logger.info("Checking MAC address spoofing... ")
+        for dpid in self.flowtablesdict:
+            flows = self.flowtablesdict[dpid]
+            for flow in flows:
+                if 'match' in flow:
+                    match = flow['matchdict']
+                    if 'packet_count_history' in flow:
+                        history = copy.deepcopy(flow['packet_count_history'])
+                        if len(history) >= 2:
+                            if history.pop() - history.pop() >= self.MAC_SPOOFPROT_MAX_PPS:
+                                self.logger.info("Number of PPS exceeded. Enabling MAC spoofing protection!")
+                                self.disable_flow(msg, match)
+                    #self.logger.info("Count: %s, match: %s ", count, match)
+
+    def disable_flow(self, msg, match):
+        match = copy.deepcopy(match)
+        typehex = int(match['eth_type'])
+        #typehex = '{0:x}'.format(int(typehex))
+        typehex = hex(typehex)
+        self.logger.info("Match proto: %s", str(typehex))
+        match['eth_type'] = typehex
+        self.deleteExistingRule(match)
+        self.logger.info("Flow deleted")
+        return 1
+
+    @set_ev_cls(ofp_event.EventOFPAggregateStatsReply, MAIN_DISPATCHER)
+    def aggregate_stats_reply_handler(self, ev):
+        body = ev.msg.body
+        self.logger.info('AggregateStats: packet_count=%d byte_count=%d '
+                      'flow_count=%d',
+                      body.packet_count, body.byte_count,
+                      body.flow_count)
+
 
     def createMatchDict(self, matchstring):
       #sepparated = matchstring.split(" ")
@@ -413,6 +461,7 @@ class SimpleSwitch13(app_manager.RyuApp):
         for flow in flows:
           if 'match' in flow:
             newMatchDict = flow['matchdict']
+            newMatchDict['packet_count_history'] = flow['packet_count_history']
             if allowed == 1 and flow['priority'] == 3:
               continue
             if allowed == 0 and flow['priority'] != 3:
@@ -437,19 +486,21 @@ class SimpleSwitch13(app_manager.RyuApp):
         return self.fileLoader.createVisualizationData(traffic)
 
     def deleteExistingRule(self, data):
-        self.logger.info('New request for deleting FW rule received... ' )
+        self.logger.info('New request for deleting FW rule received... %s', data['eth_type'] )
         rule = self.fileLoader.createANewRule(data)
+
         for dpid in self.datapathdict:
             datapath = self.datapathdict[dpid]
             match = self.fileLoader.createMatch(rule, datapath.ofproto_parser, dpid)
+            self.logger.info('Match: %s ', match )
             if match == 0:
                 continue
             else:
-                self.deleteDenyRule(datapath, match, int(rule.rulepriority))
+                self.deleteRule(datapath, match, int(rule.rulepriority))
                 if rule.ruletype == 2 and rule.dst != str('ff:ff:ff:ff:ff:ff'):
                     rule = self.fileLoader.swapRuleSrcDst(rule)
                     match = self.fileLoader.createMatch(rule, datapath.ofproto_parser, dpid)
-                    self.deleteDenyRule(datapath, match, int(rule.rulepriority))
+                    self.deleteRule(datapath, match, int(rule.rulepriority))
         return 200
 
     def setNewFWRule(self, data):
@@ -464,12 +515,12 @@ class SimpleSwitch13(app_manager.RyuApp):
             self.logger.info('Match couldnt be created! DPID: %s', dpid)
             continue
         else:
-          self.deleteDenyRule(datapath, match, 3)
+          self.deleteRule(datapath, match, 3)
           self.applyNewFWRule(datapath, match, int(rule.rulepriority))
           if rule.ruletype == 2 and rule.dst != str('ff:ff:ff:ff:ff:ff'):
             rule2 = self.fileLoader.swapRuleSrcDst(rule)
             match2 = self.fileLoader.createMatch(rule2, datapath.ofproto_parser, dpid)
-            self.deleteDenyRule(datapath, match2, 3)
+            self.deleteRule(datapath, match2, 3)
             self.applyNewFWRule(datapath, match2, int(rule.rulepriority))
           else:
             self.logger.info('One way rule only or destination broadcast! ')
@@ -482,9 +533,7 @@ class SimpleSwitch13(app_manager.RyuApp):
                     [parser.OFPActionOutput(ofproto.OFPP_NORMAL)])
       self.logger.info('New FW rule applied... ' )
 
-    def deleteDenyRule(self, datapath, match, priority):
-      #return
-      #TODO - this would delete a new flow!!! Bundling needed
+    def deleteRule(self, datapath, match, priority):
       ofproto = datapath.ofproto
       parser = datapath.ofproto_parser
       #inst = [parser.OFPInstructionActions(ofproto.OFPIT_APPLY_ACTIONS,actions)]

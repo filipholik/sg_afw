@@ -1,4 +1,4 @@
-# Web application for Adaptive Firewall for Smart Grid Security (3.4.3)
+# Web application for Adaptive Firewall for Smart Grid Security (3.5.0)
 
 from flask import Flask, url_for
 from flask import request
@@ -277,9 +277,9 @@ def printTrafficTable(data, action):
 
   page = """<table border="1" style="width:80%; margin-left:10%">\n
   <tr> <th>Number </th> <th> Source </th> <th> Destination </th>
-  <th> Eth Proto </th><th> Priority</th> <th> Action </th>  </tr> \n"""
+  <th> Eth Proto </th> <th> PPS </th><th> Packets </th><th> Priority</th> <th> Action </th>  </tr> \n"""
   if len(data) == 0:
-    page += "<tr> <td colspan='6' style='text-align:center; '>No traffic</td></tr>"
+    page += "<tr> <td colspan='8' style='text-align:center; '>No traffic</td></tr>"
   num = 1
   action_page = '/newrule'
   for rule in data:
@@ -305,6 +305,15 @@ def printTrafficTable(data, action):
       action_link += "type=" + str(rule['eth_type']) + "&"
     else:
       page += "<td>Any protocol</td>"
+    if 'packet_count_history' in rule and len(rule['packet_count_history']) >= 2:
+      history = rule['packet_count_history']
+      pps2 = history.pop()
+      pps1 = history.pop()
+      page += "<td>" + str(pps2-pps1) + "</td>"
+      page += "<td>" + str(pps2) + "</td>"
+    else:
+      page += "<td>?</td>"
+      page += "<td>?</td>"
     if 'priority' in rule:
       page += "<td>" + str(rule['priority']) + "</td>"
       if action == 'DENY':

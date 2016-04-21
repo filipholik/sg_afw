@@ -24,16 +24,26 @@ class SwitchPoll():
     '''
 
     def send_flow_stats_request(self, datapath):
-      ofp = datapath.ofproto
-      ofp_parser = datapath.ofproto_parser
-      cookie = cookie_mask = 0
-      match = ofp_parser.OFPMatch()
-      req = ofp_parser.OFPFlowStatsRequest(datapath, 0,
+        ofp = datapath.ofproto
+        ofp_parser = datapath.ofproto_parser
+        cookie = cookie_mask = 0
+        match = ofp_parser.OFPMatch()
+        req = ofp_parser.OFPFlowStatsRequest(datapath, 0,
                                          ofp.OFPTT_ALL,
                                          ofp.OFPP_ANY, ofp.OFPG_ANY,
                                          cookie, cookie_mask,
                                          match)
-      datapath.send_msg(req)
+        datapath.send_msg(req)
+
+    def send_aggregate_stats_request(self, datapath):
+        ofp = datapath.ofproto
+        ofp_parser = datapath.ofproto_parser
+        cookie = cookie_mask = 0
+        match = ofp_parser.OFPMatch()
+        req = ofp_parser.OFPAggregateStatsRequest(datapath, 0, 100,
+                                                  ofp.OFPG_ANY, ofp.OFPG_ANY,
+                                                  cookie, cookie_mask, match)
+        datapath.send_msg(req)
 
     '''
     def send_meter_stats_request(self, datapath):
@@ -49,7 +59,6 @@ class SwitchPoll():
 
         while True:
             for dpid, datapath in datapathdict.iteritems():
-                #self.send_port_stats_request(datapath)
                 self.send_flow_stats_request(datapath)
-                #self.send_meter_stats_request(datapath)
+                #self.send_aggregate_stats_request(datapath) #TODO enable if aggregate stats info is required
             time.sleep(pollTime)
