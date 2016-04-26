@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Adaptive Firewall for Smart Grid Security, 3.5.0
+# Adaptive Firewall for Smart Grid Security, 3.5.1
 
 from ryu.base import app_manager
 from ryu.controller import ofp_event
@@ -63,7 +63,7 @@ class SimpleSwitch13(app_manager.RyuApp):
     HW_TABLE_ID = 100 #Set id of the flow table (100 = HP switches)
     SWITCH_POLL_TIMER = 1 #How often are switches queried (in seconds)
     PACKET_HISTORY_BUFFER_SIZE = 10 #In seconds
-    MAC_SPOOFPROT_MAX_PPS = 10 #Maximum number of packets, which can be sent per second
+    MAC_SPOOFPROT_MAX_PPS = 100 #Maximum number of packets, which can be sent per second
 
     flowtablesdict = {} #Flow Tables of all switches
     trafficdict = {} #DPIDS, Array of captured traffic - dicts
@@ -461,7 +461,10 @@ class SimpleSwitch13(app_manager.RyuApp):
         for flow in flows:
           if 'match' in flow:
             newMatchDict = flow['matchdict']
-            newMatchDict['packet_count_history'] = flow['packet_count_history']
+            if 'packet_count_history' in flow:
+                newMatchDict['packet_count_history'] = flow['packet_count_history']
+            else:
+                newMatchDict['packet_count_history'] = 0
             if allowed == 1 and flow['priority'] == 3:
               continue
             if allowed == 0 and flow['priority'] != 3:
